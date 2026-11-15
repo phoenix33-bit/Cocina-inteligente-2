@@ -91,7 +91,7 @@ input.bad{border-color:var(--red);background:var(--redbg)}
 <label>Tipo de control<select id="pType"><option value="percent">Porcentaje (%)</option><option value="quantity">Cantidad simple</option></select></label>
 <label>Unidad (si corresponde)<select id="pUnit"></select></label>
 <label>Mínimo para alerta<input id="pMin" type="number" min="0" step="any" value="20"></label>
-<label>Contenido por envase (opcional)<input id="pPack" type="number" min="0" step="any" inputmode="decimal" placeholder="Ej. 5"></label><label>Unidad del contenido<select id="pPackUnit"></select></label><label>Stock inicial (opcional)<input id="pInit" type="number" min="0" step="any" inputmode="decimal"></label><label>Nota (opcional)<input id="pNote" placeholder="Ubicación, recipiente…"></label><div class="note wide" id="pHint"></div>
+<label>Contenido por envase (opcional)<input id="pPack" type="number" min="0" step="any" inputmode="decimal" placeholder="Ej. 5"></label><label>Unidad del contenido<select id="pPackUnit"></select></label><label>Stock inicial (opcional)<input id="pInit" type="number" min="0" step="any" inputmode="decimal"></label><label>Nota (opcional)<input id="pNote" placeholder="Ubicación, recipiente…"></label><label class="wide">Alias de voz (opcional, separados por coma)<input id="pAlias" placeholder="Ej. cesar, salsa cesar"></label><div class="note wide" id="pHint"></div>
 </div><div class="actions"><button class="btn" id="addProduct">Añadir producto</button></div>
 <p class="note">En productos de porcentaje, el mínimo se expresa en %. En cantidad simple, se expresa en la unidad elegida.</p>
 </div>
@@ -118,16 +118,19 @@ input.bad{border-color:var(--red);background:var(--redbg)}
 <section class="page" id="backup">
 <h2>Datos y copias de seguridad</h2><p class="sub">Los datos de esta versión se guardan en el navegador de este dispositivo.</p>
 <div class="panel"><h3>Exportar / importar</h3><p class="note">Descarga un archivo JSON para guardar tus productos e inventarios. Si cambias de teléfono o navegador, importa ese archivo para recuperar tus datos.</p><div class="actions"><button class="btn" id="exportData">Exportar copia JSON</button><label class="btn secondary" for="importFile" style="cursor:pointer">Importar copia JSON</label><input type="file" id="importFile" accept="application/json" hidden></div><div class="actions"><button class="btn danger" id="resetData">Restablecer datos de ejemplo</button></div></div>
+<div class="panel" style="margin-top:14px"><h3>Atajos de voz aprendidos</h3><p class="note">Cuando una palabra puede ser varios productos (ej. «cesar») la app te pregunta cuál y lo recuerda. También puedes añadir alias de voz a cada producto al editarlo.</p><label class="note"><input type="checkbox" id="vLearn"> Recordar mis elecciones</label><div id="vmapList"></div></div>
 <div class="panel" style="margin-top:14px"><h3>Compartir por WhatsApp</h3><p class="note">Opcional: número con código de país (ej. 5492610000000). Si lo dejas vacío, WhatsApp te deja elegir el contacto.</p><div class="toolbar"><input id="waNum" inputmode="tel" placeholder="Número de WhatsApp"></div></div>
 <div class="panel" style="margin-top:14px"><h3>Importante para esta versión</h3><p class="note">El almacenamiento es local: no hay sincronización en la nube, cuentas ni acceso desde varios dispositivos. Para evitar perder información, exporta una copia periódicamente. La siguiente versión puede incorporar base de datos online y acceso protegido.</p></div>
 </section>
-<footer>Kitchen Stock Control · Prototipo 0.3 · Datos almacenados localmente en este navegador</footer>
+<footer>Kitchen Stock Control · Prototipo 0.4 · Datos almacenados localmente en este navegador</footer>
 </main>
 <button class="fab" id="micFab" aria-label="Comandos de voz">🎙️</button>
-<div class="vp" id="vp"><div style="display:flex;justify-content:space-between;align-items:center"><b>🎙️ Comandos de voz</b><button class="btn secondary small" id="vClose">✕</button></div><p class="note" id="vStat"></p>
+<div class="vp" id="vp"><div style="display:flex;justify-content:space-between;align-items:center"><b>🎙️ Comandos de voz</b><button class="btn secondary small" id="vClose">✕</button></div>
+<div class="toolbar" style="margin:8px 0"><select id="vLang" aria-label="Idioma de voz"><option value="es">Español</option><option value="en">English</option><option disabled>Nederlands (próximamente)</option><option disabled>Papiamentu (próximamente)</option></select><label class="note"><input type="checkbox" id="vTts"> Responder en voz alta</label></div>
+<p class="note" id="vStat"></p>
 <div class="toolbar"><button class="btn" id="micGo">🎙️ Hablar</button><input id="vcmd" placeholder="o escribe: caesar dressing 80" style="flex:1"><button class="btn secondary" id="vRun">➤</button></div>
-<div id="vTxt" class="note"></div><div id="vOut" class="note"></div>
-<p class="note">Ejemplos: «caesar dressing 80» · «pollo 3 kilos» · «wasabi mayo agotado» · «buscar limones» · «agregar producto salsa tártara» · «guardar» · «PDF» · «WhatsApp» · «ir a historial».</p></div>
+<div id="vAsk"></div><div id="vTxt" class="note"></div><div id="vOut" class="note"></div>
+<p class="note">Ejemplos: «caesar dressing 80» · «pollo 3 kilos» · «wasabi mayo agotado» · «chicken three kilos» · «mayo base two buckets» · «buscar limones» · «search lemons» · «guardar» / «save» · «PDF» · «WhatsApp» · «ir a historial» / «go to history». Si una palabra puede ser varios productos (ej. «cesar»), te pregunto cuál.</p></div>
 <div class="toasts" id="toasts"></div><div class="modal" id="modal"></div>
 <script>
 const KEY='kitchen_stock_v01';
@@ -262,7 +265,7 @@ m.innerHTML=`<div class="mbox" style="max-height:90vh;overflow:auto"><h3>Editar 
 <label>Mínimo para alerta<input id="eMin" type="number" min="0" step="any" value="${p.min}"></label>
 <label>Contenido por envase<input id="ePack" type="number" min="0" step="any" value="${p.packQty??''}" placeholder="Ej. 5"></label>
 <label>Unidad del contenido<select id="ePU">${PACKU.map(x=>`<option${x===(p.packUnit||'kg')?' selected':''}>${x}</option>`).join('')}</select></label>
-<label class="wide">Nota<input id="eNote" value="${esc(p.note||'')}"></label></div>
+<label class="wide">Nota<input id="eNote" value="${esc(p.note||'')}"></label><label class="wide">Alias de voz (separados por coma)<input id="eAlias" value="${esc(p.alias||'')}" placeholder="Ej. cesar, salsa cesar"></label></div>
 <p class="note">Si cambias el tipo de control, los valores ya guardados se conservan: revísalos en el historial.</p>
 <div class="actions"><button class="btn secondary" data-r="0">Cancelar</button><button class="btn" id="eSave">Guardar cambios</button></div></div>`;
 const sync=()=>{const pc=$('eType').value==='percent';$('eUnit').disabled=pc;$('ePack').disabled=pc;$('ePU').disabled=pc};sync();$('eType').onchange=sync;
@@ -270,7 +273,7 @@ m.classList.add('on');m.onclick=e=>{if(e.target===m||e.target.dataset.r==='0')m.
 $('eSave').onclick=()=>{const n=$('eName').value.trim(),min=Number($('eMin').value);
 if(!n)return toast('Escribe un nombre');if(data.products.some(x=>x.id!==id&&norm(x.name)===norm(n)))return toast('Ese nombre ya existe');if(isNaN(min)||min<0)return toast('Mínimo inválido');
 flush();const ty=$('eType').value,pk=$('ePack').value,old=p.name;
-Object.assign(p,{name:n,cat:$('eCat').value,type:ty,unit:ty==='percent'?'%':$('eUnit').value,min,packQty:ty==='quantity'&&pk!==''?Number(pk):null,packUnit:$('ePU').value,note:$('eNote').value.trim()});
+Object.assign(p,{name:n,cat:$('eCat').value,type:ty,unit:ty==='percent'?'%':$('eUnit').value,min,packQty:ty==='quantity'&&pk!==''?Number(pk):null,packUnit:$('ePU').value,note:$('eNote').value.trim(),alias:$('eAlias').value.trim()});
 persist();m.classList.remove('on');renderProducts();renderStock();renderDashboard();addMsg('edit','Producto editado: '+n,old!==n?`Antes se llamaba «${old}».`:'Se actualizaron sus datos.',id);toast('Producto actualizado')}}
 function askText(msg,val=''){return new Promise(res=>{const m=$('modal');m.innerHTML=`<div class="mbox"><p>${esc(msg)}</p><input id="atx" value="${esc(val)}" style="width:100%"><div class="actions"><button class="btn secondary" data-r="0">Cancelar</button><button class="btn" data-r="1">Guardar</button></div></div>`;m.classList.add('on');$('atx').focus();m.onclick=e=>{const b=e.target.closest('[data-r]');if(b||e.target===m){m.classList.remove('on');res(b?.dataset.r==='1'?$('atx').value.trim():null)}}})}
 function setCats(l){data.cats=l;cats.splice(0,cats.length,...l);persist()}
@@ -290,9 +293,9 @@ if(!name)return toast('Escribe un nombre');
 if(data.products.some(p=>norm(p.name)===norm(name)))return toast('Ese producto ya existe');
 if(isNaN(min)||min<0)return toast('El mínimo no puede ser negativo');
 if(init!==''&&(Number(init)<0||(type==='percent'&&Number(init)>100)))return toast('Stock inicial inválido');
-flush();const p={id:'p'+Date.now(),name,cat:$('pCat').value,type,unit:type==='percent'?'%':$('pUnit').value,min,packQty:type==='quantity'&&pk!==''?Number(pk):null,packUnit:$('pPackUnit').value,note:$('pNote').value.trim()};
+flush();const p={id:'p'+Date.now(),name,cat:$('pCat').value,type,unit:type==='percent'?'%':$('pUnit').value,min,packQty:type==='quantity'&&pk!==''?Number(pk):null,packUnit:$('pPackUnit').value,note:$('pNote').value.trim(),alias:$('pAlias').value.trim()};
 data.products.push(p);if(init!=='')setStock(p.id,Number(init));persist();
-['pName','pNote','pInit','pPack'].forEach(i=>$(i).value='');$('pHint').textContent='';
+['pName','pNote','pInit','pPack','pAlias'].forEach(i=>$(i).value='');$('pHint').textContent='';
 renderProducts();renderStock();renderDashboard();addMsg('edit','Producto nuevo: '+name,'Categoría: '+p.cat+'.',p.id);toast('✔ Producto añadido: '+name);flash($('pr-'+p.id))};
 function series(id,upto,n=8){const by={};data.snapshots.forEach(s=>{if((!upto||s.date<=upto)&&s.values[id]!=null&&(!by[s.date]||s.savedAt>by[s.date].t))by[s.date]={t:s.savedAt,v:s.values[id]}});return Object.keys(by).sort().slice(-n).map(d=>by[d].v)}
 function spark(id,upto){const v=series(id,upto);if(v.length<2)return '<span class="note">—</span>';const mx=Math.max(...v),mn=Math.min(...v),r=mx-mn||1,pts=v.map((x,i)=>`${(i/(v.length-1)*58+1).toFixed(1)},${(17-(x-mn)/r*15).toFixed(1)}`).join(' ');return `<svg class="spark" viewBox="0 0 60 18"><polyline points="${pts}" fill="none" stroke="${v[v.length-1]<v[0]?'#b33b3b':'#236b4b'}" stroke-width="1.6"/></svg>`}
@@ -324,49 +327,124 @@ const lect=r=>r.d<0&&status(r.p,r.y)!=='OK'?'<span class="pill low">Reponer</spa
 $('analysisContent').innerHTML=`<div class="cards"><div class="card kpi"><small>Inventarios</small><strong>${ds.length}</strong></div><div class="card kpi"><small>Desde</small><strong style="font-size:18px">${fmt(da)}</strong></div><div class="card kpi"><small>Hasta</small><strong style="font-size:18px">${fmt(db)}</strong></div><div class="card kpi"><small>Productos comparados</small><strong>${rows.length}</strong></div></div><h3>Variación entre ${fmt(da)} y ${fmt(db)}</h3><div style="overflow:auto"><table><thead><tr><th>Producto</th><th>Inicial</th><th>Final</th><th>Variación</th><th>Tendencia</th><th>Lectura</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.p.name)}</td><td>${r.x}</td><td>${r.y}</td><td>${dfBadge(r.d,r.p)}</td><td>${spark(r.p.id,db)}</td><td>${lect(r)}</td></tr>`).join('')}</tbody></table></div><p class="note">Esto mide la variación neta de existencias entre dos fechas. «Repuesto» indica que el stock subió (posible compra o producción). Para conocer consumo real hacen falta registros de compras/entradas y producción/mermas.</p>`;
 }
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-/* ===== Comandos de voz ===== */
-const NW={cero:0,un:1,uno:1,una:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,once:11,doce:12,trece:13,catorce:14,quince:15,dieciseis:16,diecisiete:17,dieciocho:18,diecinueve:19,veinte:20,veintiuno:21,veintidos:22,veintitres:23,veinticuatro:24,veinticinco:25,veintiseis:26,veintisiete:27,veintiocho:28,veintinueve:29,treinta:30,cuarenta:40,cincuenta:50,sesenta:60,setenta:70,ochenta:80,noventa:90,cien:100,ciento:100,medio:.5,media:.5};
-const AL={mayonesa:'mayo',ahumado:'smoked',pollo:'chicken',pescado:'white fish',cerdo:'pork',atun:'tuna',camarones:'shrimp',camaron:'shrimp',gambas:'shrimp',langostinos:'shrimp',papas:'potatoes',papa:'potatoes',patatas:'potatoes',palta:'avocado',aguacate:'avocado',tomates:'tomatoes',tomate:'tomatoes',brocoli:'broccoli',limas:'limes',lima:'limes',limones:'lemons',limon:'lemon',cebollas:'onions',cebolla:'onions',pan:'bread',parmesano:'parmesan',manteca:'butter',mantequilla:'butter',crema:'cream',nata:'cream',helado:'ice cream',trufa:'truffle',tinta:'ink',cesar:'caesar',pimenton:'paprika',italiana:'italian'};
-const STOP=new Set('de del la el los las al a en un y con stock quedan queda hay tengo tenemos es son esta estan kilos kilo kg litros litro l porciento por ciento unidades unidad bandejas bandeja cajas caja pon poner ponle anota registra registrar actualiza actualizar cambia lo para'.split(' '));
+/* ===== Comandos de voz (multi-idioma: ES + EN; NL y PAP se añaden como datos) ===== */
+const LANGS={
+es:{name:'Español',
+nums:{cero:0,un:1,uno:1,una:1,dos:2,tres:3,cuatro:4,cinco:5,seis:6,siete:7,ocho:8,nueve:9,diez:10,once:11,doce:12,trece:13,catorce:14,quince:15,dieciseis:16,diecisiete:17,dieciocho:18,diecinueve:19,veinte:20,veintiuno:21,veintidos:22,veintitres:23,veinticuatro:24,veinticinco:25,veintiseis:26,veintisiete:27,veintiocho:28,veintinueve:29,treinta:30,cuarenta:40,cincuenta:50,sesenta:60,setenta:70,ochenta:80,noventa:90,cien:100,ciento:100,medio:.5,media:.5},
+stop:'de del la el los las al a en un y con stock quedan queda hay tengo tenemos es son esta estan kilos kilo kg litros litro l porciento por ciento unidades unidad bandejas bandeja cajas caja bolsas bolsa baldes balde pon poner ponle anota registra registrar actualiza actualizar cambia lo para'.split(' '),
+zero:'agotad[oa]s?|sin stock|se acabo|acabo|vacio|vacia|nada',
+save:'^guard',add:'^(?:agregar|agrega|anadir|nuevo|nueva|crear|alta)\\b.*\\bproducto\\b',addName:'producto\\s+(.+)$',search:'^(?:buscar|busca|busco) (.+)$',clear:'^(?:limpiar|borrar) busqueda',cancel:'^(?:cancelar|cancela|ninguno|ninguna|nada)$',
+pre:'ir a|abrir|abre|mostrar|muestra|ver|ve a',
+nav:{resumen:'dashboard',stock:'stock',inventario:'stock',productos:'products',historial:'history',analisis:'analysis',avisos:'inbox',notificaciones:'inbox',alertas:'inbox',copias:'backup',respaldo:'backup',backup:'backup'},
+ord:{uno:1,primero:1,primera:1,dos:2,segundo:2,segunda:2,tres:3,tercero:3,tercera:3,cuatro:4,cuarto:4,cuarta:4},
+alias:{mayonesa:'mayo',ahumado:'smoked',pollo:'chicken',pescado:'white fish',cerdo:'pork',atun:'tuna',camarones:'shrimp',camaron:'shrimp',gambas:'shrimp',langostinos:'shrimp',papas:'potatoes',papa:'potatoes',patatas:'potatoes',palta:'avocado',aguacate:'avocado',tomates:'tomatoes',tomate:'tomatoes',brocoli:'broccoli',limas:'limes',lima:'limes',limones:'lemons',limon:'lemon',cebollas:'onions',cebolla:'onions',pan:'bread',parmesano:'parmesan',manteca:'butter',mantequilla:'butter',crema:'cream',nata:'cream',helado:'ice cream',trufa:'truffle',tinta:'ink',cesar:'caesar',pimenton:'paprika',pimiento:'paprika',pimientos:'paprika',italiana:'italian',roja:'red',rojo:'red',verde:'green',amarilla:'yellow',amarillo:'yellow',harina:'flour'},
+tx:{saved:'Guardado',pdf:'PDF de inventario',pdfr:'PDF de reposición',wa:'Abriendo WhatsApp',newp:n=>'Nuevo producto: '+n,search:q=>'Buscando: '+q,go:s=>'Abriendo '+s,huh:r=>'No entendí «'+r+'»',bad:'No entendí:',whichq:'¿Cuál producto?',which:o=>'¿Cuál? '+o.map((p,i)=>['Uno','Dos','Tres','Cuatro'][i]+', '+p.name).join('. '),cancel:'Cancelado',help:'Di uno, dos… o el nombre del producto',range:'valor fuera de rango',nofield:'campo no encontrado',ready:'Toca «Hablar» o escribe el comando.',listening:'Escuchando… habla con claridad (puedes decir varios productos seguidos).',nosr:'Este navegador no tiene reconocimiento de voz: escribe el comando o usa el dictado del teclado.'}},
+en:{name:'English',
+nums:{zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90,hundred:100,half:.5},
+stop:'the of a an and with stock left remaining have we has is are there set update change put to at in on for percent kilos kilo kilograms kg liters litres liter litre bags bag buckets bucket boxes box trays tray units unit pieces piece please'.split(' '),
+zero:'out of stock|sold out|none left|none|empty|finished|gone|no stock',
+save:'^(?:save|store)\\b',add:'^(?:add|create|new)\\b.*\\b(?:product|item)\\b',addName:'(?:product|item)\\s+(.+)$',search:'^(?:search for|search|find|look for) (.+)$',clear:'^(?:clear|reset) search',cancel:'^(?:cancel|none|nothing|never mind|nevermind)$',
+pre:'go to|open|show|view|take me to',
+nav:{summary:'dashboard',dashboard:'dashboard',stock:'stock',inventory:'stock',products:'products',history:'history',analysis:'analysis',alerts:'inbox',notifications:'inbox',messages:'inbox',backup:'backup',backups:'backup'},
+ord:{one:1,first:1,two:2,second:2,three:3,third:3,four:4,fourth:4},
+alias:{mayonnaise:'mayo',prawns:'shrimp',prawn:'shrimp',shrimps:'shrimp',tomato:'tomatoes',potato:'potatoes',pepper:'paprika',peppers:'paprika',pimento:'paprika'},
+tx:{saved:'Saved',pdf:'Inventory PDF',pdfr:'Restock PDF',wa:'Opening WhatsApp',newp:n=>'New product: '+n,search:q=>'Searching: '+q,go:s=>'Opening '+s,huh:r=>"I didn't understand «"+r+'»',bad:"Didn't understand:",whichq:'Which product?',which:o=>'Which one? '+o.map((p,i)=>['One','Two','Three','Four'][i]+', '+p.name).join('. '),cancel:'Cancelled',help:'Say one, two… or the product name',range:'value out of range',nofield:'field not found',ready:'Tap «Speak» or type the command.',listening:'Listening… speak clearly (you can say several products in a row).',nosr:'This browser has no speech recognition: type the command or use keyboard dictation.'}}
+};
+const SPCODE={es:()=>(navigator.language||'').startsWith('es')?navigator.language:'es-ES',en:()=>(navigator.language||'').startsWith('en')?navigator.language:'en-US'};
+const vLang=()=>data.settings.vlang||((navigator.language||'').startsWith('en')?'en':'es');
+const T=k=>LANGS[vLang()].tx[k];
 const stem=w=>w.length>3?w.replace(/s$/,''):w;
 function lev(a,b){const m=[...Array(b.length+1).keys()];for(let i=1;i<=a.length;i++){let p=m[0];m[0]=i;for(let j=1;j<=b.length;j++){const t=m[j];m[j]=Math.min(m[j]+1,m[j-1]+1,p+(a[i-1]===b[j-1]?0:1));p=t}}return m[b.length]}
-function numWords(s){const t=s.split(' '),o=[];for(let i=0;i<t.length;i++){const w=t[i];if(w in NW){let v=NW[w];if(v>=30&&v<=90&&t[i+1]==='y'&&(t[i+2] in NW)&&NW[t[i+2]]<10){v+=NW[t[i+2]];i+=2}if(t[i+1]==='y'&&t[i+2]==='medio'){v+=.5;i+=2}o.push(String(v))}else o.push(w)}return o.join(' ').replace(/(\d)\s+coma\s+(\d)/g,'$1.$2')}
-function findProducts(words){
-const toks=words.flatMap(w=>(AL[w]||w).split(' ')).filter(w=>w&&!STOP.has(w)&&!/^\d/.test(w)).map(stem);if(!toks.length)return[];
+let V=null;
+function buildV(){const L=Object.values(LANGS);
+V={nums:Object.assign({},...L.map(l=>l.nums)),alias:Object.assign({},...L.map(l=>l.alias)),nav:Object.assign({},...L.map(l=>l.nav)),ord:Object.assign({},...L.map(l=>l.ord)),stop:new Set(L.flatMap(l=>l.stop)),
+zero:new RegExp('\\b('+L.map(l=>l.zero).join('|')+')\\b','g'),
+navRe:new RegExp('^(?:(?:'+L.map(l=>l.pre).join('|')+') )?('+L.flatMap(l=>Object.keys(l.nav)).join('|')+')$')}}
+const lre=(k,s,f)=>{for(const l of Object.values(LANGS)){const m=s.match(new RegExp(l[k],f||''));if(m)return m}return null};
+function numWords(s){
+const N=V.nums,t=s.split(' '),o=[];
+for(let i=0;i<t.length;i++){const w=t[i];if(!(w in N)){o.push(w);continue}
+let v=N[w];
+if(v>=20&&v<100&&v%10===0){
+if(t[i+1]==='y'&&(t[i+2] in N)&&N[t[i+2]]>=1&&N[t[i+2]]<10){v+=N[t[i+2]];i+=2}
+else if((t[i+1] in N)&&N[t[i+1]]>=1&&N[t[i+1]]<10){v+=N[t[i+1]];i+=1}}
+else if(v>=1&&v<10&&t[i+1]==='hundred'){v*=100;i+=1}
+if(t[i+1]==='y'&&t[i+2]==='medio'){v+=.5;i+=2}
+else if(t[i+1]==='and'&&t[i+2]==='a'&&t[i+3]==='half'){v+=.5;i+=3}
+else if(t[i+1]==='and'&&t[i+2]==='half'){v+=.5;i+=2}
+o.push(String(v))}
+return o.join(' ').replace(/(\d)\s+(?:coma|punto|point)\s+(\d)/g,'$1.$2')}
+function normText(raw){
+if(!V)buildV();
+const t=norm(raw).replace(/%/g,' porciento ').replace(/\bpor ciento\b/g,' porciento ').replace(/(\d)[.,](\d)/g,'$1#$2').replace(/[^a-z0-9# ]/g,' ').replace(/#/g,'.').replace(/\s+/g,' ').trim();
+return numWords(t)}
+const canonWords=a=>a.flatMap(w=>(V.alias[w]||w).split(' ')).filter(w=>w&&!V.stop.has(w)&&!/^\d/.test(w)).map(stem);
+const pNames=p=>[p.name,...String(p.alias||'').split(',')].map(x=>x.trim()).filter(Boolean);
+function findProducts(words,pool){
+pool=pool||data.products;if(!V)buildV();
+const toks=canonWords(words);if(!toks.length)return[];
+const L=data.settings.vmap&&data.settings.vmap[toks.join(' ')],lp=L&&pool.find(p=>p.id===L);if(lp)return[{p:lp,s:2}];
 const eq=(u,t)=>u===t||(t.length>=5&&u.length>=5&&lev(u,t)<=1);
-return data.products.map(p=>{const pt=norm(p.name).split(/[^a-z0-9]+/).filter(Boolean).map(stem);return{p,s:pt.filter(t=>toks.some(u=>eq(u,t))).length/pt.length-toks.filter(u=>!pt.some(t=>eq(u,t))).length*.15}}).filter(x=>x.s>=.5).sort((a,b)=>b.s-a.s)}
-function applyVal(p,v){if(v<0||(p.type==='percent'&&v>100))return p.name+': valor fuera de rango';
-$('stockSearch').value='';$('filterCategory').value='all';showTab('stock');
-const i=document.querySelector(`[data-value="${p.id}"]`);if(!i)return p.name+': campo no encontrado';
-i.value=v;i.dispatchEvent(new Event('input',{bubbles:true}));flash($('row-'+p.id));return ''}
-function runCmd(raw){
-let t=norm(raw).replace(/%/g,' porciento ').replace(/\bpor ciento\b/g,' porciento ').replace(/(\d)[.,](\d)/g,'$1#$2').replace(/[^a-z0-9# ]/g,' ').replace(/#/g,'.').replace(/\s+/g,' ').trim();
-t=numWords(t).replace(/\b(agotad[oa]s?|sin stock|se acabo|acabo|vacio|vacia|nada)\b/g,' 0 ').replace(/\s+/g,' ').trim();
-const out=m=>{$('vOut').innerHTML=m;toast(m.replace(/<[^>]+>/g,' '),3200)};
-if(!t)return;
-if(/^guard/.test(t)){saveStock();return out('💾 Guardado')}
-if(/\bpdf\b/.test(t)){const rp=/reposicion|pedido|faltan/.test(t);doPDF(rp?'rep':'inv','stock');return out('📄 PDF de '+(rp?'reposición':'inventario'))}
-if(/whatsapp|wasap|guasap/.test(t)){shareWA('stock');return out('📲 Abriendo WhatsApp')}
-if(/^(agregar|agrega|anadir|nuevo|crear|alta)\b.*\bproducto\b/.test(t)){const nm=(raw.match(/producto\s+(.+)$/i)||[])[1];if(nm){newProd(nm.charAt(0).toUpperCase()+nm.slice(1));return out('➕ Nuevo producto: '+esc(nm))}}
-let m=t.match(/^(?:buscar|busca|busco) (.+)$/);
-if(m){showTab('stock');$('stockSearch').value=m[1];renderStock();acUpdate();return out('🔎 '+esc(m[1]))}
-if(m=t.match(/^(?:ir a |abrir |abre |mostrar |muestra |ver |ve a )?(resumen|stock|inventario|productos|historial|analisis|avisos|notificaciones|alertas|copias|respaldo|backup)$/)){showTab({resumen:'dashboard',stock:'stock',inventario:'stock',productos:'products',historial:'history',analisis:'analysis',avisos:'inbox',notificaciones:'inbox',alertas:'inbox'}[m[1]]||'backup');return out('➡️ '+m[1])}
-const ws=t.split(' '),segs=[];
+return pool.map(p=>{let best=-9;pNames(p).forEach((nm,k)=>{const pt=canonWords(norm(nm).split(/[^a-z0-9]+/).filter(Boolean));if(!pt.length)return;
+const hit=pt.filter(x=>toks.some(u=>eq(u,x))).length,extra=toks.filter(u=>!pt.some(x=>eq(u,x))).length;
+let s=hit/pt.length-extra*.15;if(k>0&&pt.length===toks.length&&hit===pt.length)s=1.2;if(s>best)best=s});return{p,s:best}}).filter(x=>x.s>=.5).sort((a,b)=>b.s-a.s)}
+const isAmb=f=>f.length>1&&f[0].s<1.2&&f[1].s>=f[0].s-.1;
+function segsOf(t){const ws=t.split(' '),segs=[];
 if(/^\d/.test(ws[0])){let c=null;ws.forEach(w=>{if(/^\d/.test(w)){c={n:Number(w),w:[]};segs.push(c)}else if(c)c.w.push(w)})}
 else{let c=[];ws.forEach(w=>{if(/^\d/.test(w)){segs.push({n:Number(w),w:c});c=[]}else c.push(w)})}
-const ok=[],bad=[];
+return segs}
+let ASK=null,askQ=[],speaking=false,ignoreUntil=0;
+const plain=h=>h.replace(/<br>/g,'. ').replace(/<[^>]+>/g,'').replace(/[✔⚠️➡️🔎📄📲💾➕🤔✖🗣️]/gu,'').trim();
+function say(txt){if(!data.settings.vtts||!window.speechSynthesis)return;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(txt);u.lang=SPCODE[vLang()]();speaking=true;u.onend=u.onerror=()=>{speaking=false;ignoreUntil=Date.now()+1300};speechSynthesis.speak(u)}catch(e){speaking=false}}
+function out(h,sp){$('vOut').innerHTML=h;toast(plain(h),3200);if(sp!==false)say(plain(h))}
+function applyVal(p,v){if(v<0||(p.type==='percent'&&v>100))return p.name+': '+T('range');
+$('stockSearch').value='';$('filterCategory').value='all';showTab('stock');
+const i=document.querySelector(`[data-value="${p.id}"]`);if(!i)return p.name+': '+T('nofield');
+i.value=v;i.dispatchEvent(new Event('input',{bubbles:true}));flash($('row-'+p.id));return ''}
+function nextAsk(){ASK=askQ.shift()||null;const el=$('vAsk');if(!ASK){el.innerHTML='';return}
+el.innerHTML=`<div class="note"><b>${T('whichq')}</b> «${esc(ASK.w.join(' '))}» → ${ASK.n}</div><div class="actions" style="margin:6px 0">${ASK.opts.map((p,i)=>`<button class="btn secondary small" data-pk="${i}">${i+1}. ${esc(p.name)}</button>`).join('')}<button class="btn small" data-pk="x">✕</button></div>`;
+say(T('which')(ASK.opts))}
+function chooseAsk(i){const a=ASK,p=a.opts[i],e=applyVal(p,a.n);
+if(data.settings.vlearn!==0){const k=canonWords(a.w).join(' ');if(k){(data.settings.vmap=data.settings.vmap||{})[k]=p.id;persist();renderVmap()}}
+out(e?'⚠️ '+esc(e):`✔ ${esc(p.name)} → ${a.n} ${esc(uOf(p))}`);nextAsk()}
+function resolveAsk(t0){
+if(!ASK)return false;const ws=t0.split(' ');
+if(lre('cancel',t0)){ASK=null;askQ=[];$('vAsk').innerHTML='';out('✖ '+T('cancel'));return true}
+let i=-1;if(ws.length===1){if(ws[0] in V.ord)i=V.ord[ws[0]]-1;else if(/^[1-4]$/.test(ws[0]))i=+ws[0]-1}
+if(i<0){const f=findProducts(ws,ASK.opts);if(f.length&&(!f[1]||f[0].s>f[1].s+.05))i=ASK.opts.indexOf(f[0].p)}
+if(i>=0&&ASK.opts[i]){chooseAsk(i);return true}
+if(/\d/.test(t0)){ASK=null;askQ=[];$('vAsk').innerHTML='';return false}
+out('🤔 '+T('help'));return true}
+function runCmd(raw){
+const t0=normText(raw);if(!t0)return;
+if(resolveAsk(t0))return;
+const t=t0.replace(V.zero,' 0 ').replace(/\s+/g,' ').trim();
+if(lre('save',t)){saveStock();return out('💾 '+T('saved'))}
+if(/\bpdf\b/.test(t)){const rp=/reposicion|pedido|faltan|restock|reorder|order/.test(t);doPDF(rp?'rep':'inv','stock');return out('📄 '+T(rp?'pdfr':'pdf'))}
+if(/whatsapp|wasap|guasap/.test(t)){shareWA('stock');return out('📲 '+T('wa'))}
+if(lre('add',t)){const nm=(lre('addName',raw)||[])[1];if(nm){newProd(nm.charAt(0).toUpperCase()+nm.slice(1));return out('➕ '+esc(T('newp')(nm)))}}
+let m=lre('search',t);
+if(m){showTab('stock');$('stockSearch').value=m[1];renderStock();acUpdate();return out('🔎 '+esc(T('search')(m[1])))}
+if(lre('clear',t)){$('stockSearch').value='';renderStock();return out('🔎 ✓')}
+if(m=t.match(V.navRe)){showTab({dashboard:'dashboard',stock:'stock',products:'products',history:'history',analysis:'analysis',inbox:'inbox',backup:'backup'}[V.nav[m[1]]]);return out('➡️ '+esc(T('go')(m[1])))}
+const segs=segsOf(t),ok=[],bad=[];
 segs.forEach(sg=>{const f=findProducts(sg.w),nm=sg.w.join(' ')||'?';
 if(!f.length){bad.push('«'+esc(nm)+'»');return}
-if(f[1]&&f[1].s===f[0].s&&f[0].s<1){bad.push('«'+esc(nm)+'» es ambiguo: '+esc(f[0].p.name)+' / '+esc(f[1].p.name));return}
+if(isAmb(f)){askQ.push({n:sg.n,w:sg.w,opts:f.filter(x=>x.s>=f[0].s-.1).slice(0,4).map(x=>x.p)});return}
 const e=applyVal(f[0].p,sg.n);e?bad.push(esc(e)):ok.push(`${esc(f[0].p.name)} → ${sg.n} ${esc(uOf(f[0].p))}`)});
-out((ok.length?'✔ '+ok.join('<br>✔ '):'')+(bad.length?(ok.length?'<br>':'')+'⚠️ No entendí: '+bad.join('; '):'')||'🤔 No entendí «'+esc(raw)+'»')}
+const msg=(ok.length?'✔ '+ok.join('<br>✔ '):'')+(bad.length?(ok.length?'<br>':'')+'⚠️ '+T('bad')+' '+bad.join('; '):'');
+if(msg)out(msg);else if(!askQ.length)out('🤔 '+esc(T('huh')(raw)));
+if(askQ.length)nextAsk()}
+$('vAsk').onclick=e=>{const b=e.target.closest('[data-pk]');if(!b||!ASK)return;if(b.dataset.pk==='x'){ASK=null;askQ=[];$('vAsk').innerHTML='';out('✖ '+T('cancel'),false)}else chooseAsk(+b.dataset.pk)};
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;let rec=null,listening=false;
-function micUI(){$('micFab').classList.toggle('on',listening);$('micGo').classList.toggle('on',listening);$('micGo').textContent=listening?'⏹ Detener':'🎙️ Hablar';$('vStat').textContent=listening?'Escuchando… habla con claridad (puedes decir varios productos seguidos).':(SR?'Toca «Hablar» o escribe el comando.':'Este navegador no tiene reconocimiento de voz: escribe el comando o usa el dictado del teclado.')}
+function micUI(){$('micFab').classList.toggle('on',listening);$('micGo').classList.toggle('on',listening);$('micGo').textContent=listening?'⏹':'🎙️ '+(vLang()==='en'?'Speak':'Hablar');$('vStat').textContent=listening?T('listening'):(SR?T('ready'):T('nosr'))}
 function toggleMic(){
-if(!SR){toast('Sin reconocimiento de voz en este navegador. Prueba Chrome o Safari.',4200);return}
+if(!SR){toast(T('nosr'),4200);return}
 if(listening){listening=false;rec&&rec.stop();micUI();return}
-rec=new SR();rec.lang=(navigator.language||'').startsWith('es')?navigator.language:'es-ES';rec.interimResults=true;rec.continuous=true;
-rec.onresult=e=>{let fin='',tmp='';for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)fin+=r[0].transcript+' ';else tmp+=r[0].transcript}$('vTxt').textContent='🗣️ '+(tmp||fin);if(fin.trim())runCmd(fin.trim())};
+rec=new SR();rec.lang=SPCODE[vLang()]();rec.interimResults=true;rec.continuous=true;
+rec.onresult=e=>{let fin='',tmp='';for(let i=e.resultIndex;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)fin+=r[0].transcript+' ';else tmp+=r[0].transcript}
+if(speaking||Date.now()<ignoreUntil)return;
+$('vTxt').textContent='🗣️ '+(tmp||fin);if(fin.trim())runCmd(fin.trim())};
 rec.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){listening=false;toast('Micrófono bloqueado o sin permiso en esta vista.',4500);micUI()}};
 rec.onend=()=>{if(listening){try{rec.start()}catch(_){}}else micUI()};
 listening=true;try{rec.start()}catch(_){}micUI()}
@@ -375,6 +453,14 @@ $('micFab').onclick=()=>$('vp').classList.contains('on')?$('vp').classList.remov
 $('micBtn').onclick=openVP;$('vClose').onclick=()=>$('vp').classList.remove('on');$('micGo').onclick=toggleMic;
 $('vRun').onclick=()=>{const v=$('vcmd').value.trim();if(v){runCmd(v);$('vcmd').value=''}};
 $('vcmd').onkeydown=e=>{if(e.key==='Enter')$('vRun').click()};
+$('vLang').onchange=()=>{data.settings.vlang=$('vLang').value;persist();ASK=null;askQ=[];$('vAsk').innerHTML='';if(listening){listening=false;try{rec.stop()}catch(_){}setTimeout(toggleMic,400)}micUI()};
+$('vTts').onchange=()=>{data.settings.vtts=$('vTts').checked?1:0;persist();if(!data.settings.vtts&&window.speechSynthesis)speechSynthesis.cancel()};
+$('vLearn').onchange=()=>{data.settings.vlearn=$('vLearn').checked?1:0;persist()};
+function renderVmap(){const m=data.settings.vmap||{},k=Object.keys(m).filter(x=>prod(m[x]));
+$('vmapList').innerHTML=k.length?k.map(x=>`<div class="prow"><div><b>«${esc(x)}»</b> → ${esc(prod(m[x]).name)}</div><button class="btn danger small" data-vm="${esc(x)}">Olvidar</button></div>`).join(''):'<div class="empty">Aún no hay atajos aprendidos.</div>'}
+$('vmapList').onclick=e=>{const b=e.target.closest('[data-vm]');if(!b)return;delete data.settings.vmap[b.dataset.vm];persist();renderVmap()};
+$('vLang').value=vLang();$('vTts').checked=!!data.settings.vtts;$('vLearn').checked=data.settings.vlearn!==0;renderVmap();
+$('vcmd').placeholder=vLang()==='en'?'or type: caesar dressing 80':'o escribe: caesar dressing 80';
 
 /* ===== PDF (sin librerías: funciona sin conexión) ===== */
 function makePDF(title,sub,blocks,foot){

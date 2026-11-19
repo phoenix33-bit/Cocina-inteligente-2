@@ -130,6 +130,7 @@ body.auth-locked .auth-screen{display:flex}
 <label>Tipo de control<select id="pType"><option value="percent">Porcentaje (%)</option><option value="quantity">Cantidad simple</option></select></label>
 <label>Unidad (si corresponde)<select id="pUnit"></select></label>
 <label>Mínimo para alerta<input id="pMin" type="number" min="0" step="any" value="20"></label>
+<label>Frecuencia de control<select id="pFrequency"><option value="1">Diario</option><option value="3">Cada 3 días</option><option value="7" selected>Semanal</option><option value="14">Cada 2 semanas</option><option value="30">Mensual</option></select></label>
 <label>Contenido por envase (opcional)<input id="pPack" type="number" min="0" step="any" inputmode="decimal" placeholder="Ej. 5"></label><label>Unidad del contenido<select id="pPackUnit"></select></label><label>Stock inicial (opcional)<input id="pInit" type="number" min="0" step="any" inputmode="decimal"></label><label>Nota (opcional)<input id="pNote" placeholder="Ubicación, recipiente…"></label><label class="wide">Alias de voz (opcional, separados por coma)<input id="pAlias" placeholder="Ej. cesar, salsa cesar"></label><div class="note wide" id="pHint"></div>
 </div><div class="actions"><button class="btn" id="addProduct">Añadir producto</button></div>
 <p class="note">En productos de porcentaje, el mínimo se expresa en %. En cantidad simple, se expresa en la unidad elegida.</p>
@@ -201,7 +202,7 @@ if(!d.cats.includes('Panadería')){const k=d.cats.indexOf('Secos y despensa');d.
 d.products.forEach(p=>{if(p.name==='Bread'&&p.cat==='Secos y despensa')p.cat='Panadería'});
 EXTRA.forEach((x,i)=>{if(!d.products.some(p=>String(p.name).toLowerCase()===x.name.toLowerCase()))d.products.push({id:'p'+Date.now()+i,...x})});
 d.v=3}
-d.products.forEach(p=>{if(!d.cats.includes(p.cat))d.cats.push(p.cat)});
+d.products.forEach(p=>{if(!d.cats.includes(p.cat))d.cats.push(p.cat);if(!p.controlEvery)p.controlEvery=7});
 return d}
 function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&Array.isArray(d.products)&&Array.isArray(d.snapshots))return migrate(d);return fresh()}catch(e){return fresh()}}
 data=load();cats.splice(0,cats.length,...data.cats);
@@ -251,6 +252,7 @@ let curDate=null,saveT=null,acI=-1,acList=[];
 const lastCtl=id=>{let d=null;data.snapshots.forEach(s=>{if(s.values[id]!=null&&(d===null||s.date>d))d=s.date});Object.keys(data.checks||{}).forEach(k=>{if(data.checks[k][id]&&(d===null||k>d))d=k});return d};
 const daysSince=d=>Math.round((new Date(today()+'T00:00:00')-new Date(d+'T00:00:00'))/864e5);
 const staleDays=()=>Math.max(1,Number(data.settings.stale)||3);
+const dueDays=p=>Math.max(1,Number(p?.controlEvery)||7);
 const packTxt=p=>p.packQty?` · Envase: ${p.packQty} ${p.packUnit||''}`:'';
 const totTxt=(p,v)=>p.type==='quantity'&&p.packQty&&v!==''&&v!=null?`≈ ${rnd(Number(v)*p.packQty)} ${p.packUnit||''}`:'';
 const ctlTxt=lc=>{if(!lc)return 'Nunca controlado';const d=daysSince(lc);return d<=0?'Controlado hoy':`Último control: hace ${d} día${d>1?'s':''} (${fmt(lc)})`};
@@ -261,7 +263,7 @@ curDate=date;syncClr();
 const ck=data.checks[date]||{},cf=$('checkFilter').value;
 const products=data.products.filter(p=>(cat==='all'||p.cat===cat)&&(!q||norm(p.name).includes(q))&&(cf==='all'||(cf==='pending'?!ck[p.id]:!!ck[p.id])));
 const groups=cats.map(c=>({c,items:products.filter(p=>p.cat===c)})).filter(g=>g.items.length);
-$('stockItems').innerHTML=groups.length?groups.map(g=>`<div class="section-title">${esc(g.c)}</div>`+g.items.map(p=>{const v=vals[p.id]??'',lc=lastCtl(p.id),dd=lc?daysSince(lc):null;return `<div class="item${ck[p.id]?' checked':''}" id="row-${p.id}"><div><strong>${esc(p.name)} <button class="ico" data-edit="${p.id}" aria-label="Editar ${esc(p.name)}">✏️</button><button class="ico" data-chk="${p.id}" aria-label="Verificar ${esc(p.name)}">${ck[p.id]?'✅':'⬜'}</button>${rcBtn(p.id)}</strong><small class="okc">${ck[p.id]?'Verificado '+hm(ck[p.id]):''}</small><small>Mínimo: ${p.min} ${esc(uOf(p))}${packTxt(p)}</small><small class="${dd===null||dd>=staleDays()?'stale':''}">${ctlTxt(lc)}</small></div><input aria-label="${esc(p.name)}" type="number" inputmode="decimal" min="0" ${p.type==='percent'?'max="100"':''} step="any" data-value="${p.id}" value="${v}" placeholder="${p.type==='percent'?'0–100':'Cantidad'}"><div class="unit">${esc(uOf(p))}<br><span data-pill>${v===''?'':pill(status(p,v))}</span><small data-tot>${totTxt(p,v)}</small></div></div>`}).join('')).join(''):`<div class="empty">No se encontraron productos.${q?` <button class="btn small" data-newprod="1">➕ Agregar «${esc(raw)}»</button>`:''}</div>`;
+$('stockItems').innerHTML=groups.length?groups.map(g=>`<div class="section-title">${esc(g.c)}</div>`+g.items.map(p=>{const v=vals[p.id]??'',lc=lastCtl(p.id),dd=lc?daysSince(lc):null;return `<div class="item${ck[p.id]?' checked':''}" id="row-${p.id}"><div><strong>${esc(p.name)} <button class="ico" data-edit="${p.id}" aria-label="Editar ${esc(p.name)}">✏️</button><button class="ico" data-chk="${p.id}" aria-label="Verificar ${esc(p.name)}">${ck[p.id]?'✅':'⬜'}</button>${rcBtn(p.id)}</strong><small class="okc">${ck[p.id]?'Verificado '+hm(ck[p.id]):''}</small><small>Mínimo: ${p.min} ${esc(uOf(p))}${packTxt(p)}</small><small class="${dd===null||dd>=dueDays(p)?'stale':''}">${ctlTxt(lc)}</small></div><input aria-label="${esc(p.name)}" type="number" inputmode="decimal" min="0" ${p.type==='percent'?'max="100"':''} step="any" data-value="${p.id}" value="${v}" placeholder="${p.type==='percent'?'0–100':'Cantidad'}"><div class="unit">${esc(uOf(p))}<br><span data-pill>${v===''?'':pill(status(p,v))}</span><small data-tot>${totTxt(p,v)}</small></div></div>`}).join('')).join(''):`<div class="empty">No se encontraron productos.${q?` <button class="btn small" data-newprod="1">➕ Agregar «${esc(raw)}»</button>`:''}</div>`;
 updProg();
 }
 function queueSave(){$('saveState').textContent='Guardando…';clearTimeout(saveT);saveT=setTimeout(flush,600)}
@@ -303,7 +305,7 @@ $('acBox').addEventListener('touchmove',()=>{if(document.activeElement===$('stoc
 document.addEventListener('click',e=>{if(!e.target.closest('.acwrap'))$('acBox').classList.remove('on')});
 
 function syncType(){const pc=$('pType').value==='percent';$('pUnit').disabled=pc;$('pPack').disabled=pc;$('pPackUnit').disabled=pc}
-function renderProducts(){setupSelects();syncType();renderCats();$('productList').innerHTML=data.products.map(p=>{const lc=lastCtl(p.id),d=lc?daysSince(lc):null;return `<div class="prow" id="pr-${p.id}"><div><b>${esc(p.name)}</b><div class="note">${esc(p.cat)} · ${esc(uOf(p))} · mínimo ${p.min}${packTxt(p)}${p.note?' · '+esc(p.note):''}${rcTag(p.id)}</div><div class="note ${d===null||d>=staleDays()?'stale':''}">${ctlTxt(lc)}</div></div><div class="actions" style="margin:0"><button class="btn secondary small" onclick="editProduct('${p.id}')">Editar</button><button class="btn danger small" onclick="removeProduct('${p.id}')">Eliminar</button></div></div>`}).join('')||'<div class="empty">Sin productos.</div>'}
+function renderProducts(){setupSelects();syncType();renderCats();$('productList').innerHTML=data.products.map(p=>{const lc=lastCtl(p.id),d=lc?daysSince(lc):null;return `<div class="prow" id="pr-${p.id}"><div><b>${esc(p.name)}</b><div class="note">${esc(p.cat)} · ${esc(uOf(p))} · mínimo ${p.min} · control cada ${dueDays(p)} días${packTxt(p)}${p.note?' · '+esc(p.note):''}${rcTag(p.id)}</div><div class="note ${d===null||d>=dueDays(p)?'stale':''}">${ctlTxt(lc)}</div></div><div class="actions" style="margin:0"><button class="btn secondary small" onclick="editProduct('${p.id}')">Editar</button><button class="btn danger small" onclick="removeProduct('${p.id}')">Eliminar</button></div></div>`}).join('')||'<div class="empty">Sin productos.</div>'}
 async function removeProduct(id){const p=prod(id);if(!await ask('¿Eliminar este producto y sus registros?','Eliminar'))return;flush();data.products=data.products.filter(x=>x.id!==id);data.snapshots.forEach(s=>delete s.values[id]);persist();renderProducts();renderStock();renderDashboard();addMsg('edit','Producto eliminado: '+p.name,'Se borraron también sus registros.');toast('Producto eliminado')}
 function editProduct(id){const p=prod(id),m=$('modal');
 m.innerHTML=`<div class="mbox" style="max-height:90vh;overflow:auto"><h3>Editar producto</h3><div class="formgrid">
@@ -312,6 +314,7 @@ m.innerHTML=`<div class="mbox" style="max-height:90vh;overflow:auto"><h3>Editar 
 <label>Tipo de control<select id="eType"><option value="percent"${p.type==='percent'?' selected':''}>Porcentaje (%)</option><option value="quantity"${p.type==='quantity'?' selected':''}>Cantidad simple</option></select></label>
 <label>Unidad<select id="eUnit">${UNITS.map(([v,l])=>`<option value="${v}"${v===p.unit?' selected':''}>${l}</option>`).join('')}</select></label>
 <label>Mínimo para alerta<input id="eMin" type="number" min="0" step="any" value="${p.min}"></label>
+<label>Frecuencia de control<select id="eFrequency"><option value="1"${dueDays(p)===1?' selected':''}>Diario</option><option value="3"${dueDays(p)===3?' selected':''}>Cada 3 días</option><option value="7"${dueDays(p)===7?' selected':''}>Semanal</option><option value="14"${dueDays(p)===14?' selected':''}>Cada 2 semanas</option><option value="30"${dueDays(p)===30?' selected':''}>Mensual</option></select></label>
 <label>Contenido por envase<input id="ePack" type="number" min="0" step="any" value="${p.packQty??''}" placeholder="Ej. 5"></label>
 <label>Unidad del contenido<select id="ePU">${PACKU.map(x=>`<option${x===(p.packUnit||'kg')?' selected':''}>${x}</option>`).join('')}</select></label>
 <label class="wide">Nota<input id="eNote" value="${esc(p.note||'')}"></label><label class="wide">Alias de voz (separados por coma)<input id="eAlias" value="${esc(p.alias||'')}" placeholder="Ej. cesar, salsa cesar"></label></div>
@@ -322,7 +325,7 @@ m.classList.add('on');m.onclick=e=>{if(e.target===m||e.target.dataset.r==='0')m.
 $('eSave').onclick=()=>{const n=$('eName').value.trim(),min=Number($('eMin').value);
 if(!n)return toast('Escribe un nombre');if(data.products.some(x=>x.id!==id&&norm(x.name)===norm(n)))return toast('Ese nombre ya existe');if(isNaN(min)||min<0)return toast('Mínimo inválido');
 flush();const ty=$('eType').value,pk=$('ePack').value,old=p.name;
-Object.assign(p,{name:n,cat:$('eCat').value,type:ty,unit:ty==='percent'?'%':$('eUnit').value,min,packQty:ty==='quantity'&&pk!==''?Number(pk):null,packUnit:$('ePU').value,note:$('eNote').value.trim(),alias:$('eAlias').value.trim()});
+Object.assign(p,{name:n,cat:$('eCat').value,type:ty,unit:ty==='percent'?'%':$('eUnit').value,min,packQty:ty==='quantity'&&pk!==''?Number(pk):null,packUnit:$('ePU').value,controlEvery:Number($('eFrequency').value),note:$('eNote').value.trim(),alias:$('eAlias').value.trim()});
 persist();m.classList.remove('on');renderProducts();renderStock();renderDashboard();addMsg('edit','Producto editado: '+n,old!==n?`Antes se llamaba «${old}».`:'Se actualizaron sus datos.',id);toast('Producto actualizado')}}
 function askText(msg,val=''){return new Promise(res=>{const m=$('modal');m.innerHTML=`<div class="mbox"><p>${esc(msg)}</p><input id="atx" value="${esc(val)}" style="width:100%"><div class="actions"><button class="btn secondary" data-r="0">Cancelar</button><button class="btn" data-r="1">Guardar</button></div></div>`;m.classList.add('on');$('atx').focus();m.onclick=e=>{const b=e.target.closest('[data-r]');if(b||e.target===m){m.classList.remove('on');res(b?.dataset.r==='1'?$('atx').value.trim():null)}}})}
 function setCats(l){data.cats=l;cats.splice(0,cats.length,...l);persist()}
@@ -342,7 +345,7 @@ if(!name)return toast('Escribe un nombre');
 if(data.products.some(p=>norm(p.name)===norm(name)))return toast('Ese producto ya existe');
 if(isNaN(min)||min<0)return toast('El mínimo no puede ser negativo');
 if(init!==''&&(Number(init)<0||(type==='percent'&&Number(init)>100)))return toast('Stock inicial inválido');
-flush();const p={id:'p'+Date.now(),name,cat:$('pCat').value,type,unit:type==='percent'?'%':$('pUnit').value,min,packQty:type==='quantity'&&pk!==''?Number(pk):null,packUnit:$('pPackUnit').value,note:$('pNote').value.trim(),alias:$('pAlias').value.trim()};
+flush();const p={id:'p'+Date.now(),name,cat:$('pCat').value,type,unit:type==='percent'?'%':$('pUnit').value,min,packQty:type==='quantity'&&pk!==''?Number(pk):null,packUnit:$('pPackUnit').value,controlEvery:Number($('pFrequency').value)||7,note:$('pNote').value.trim(),alias:$('pAlias').value.trim()};
 data.products.push(p);if(init!=='')setStock(p.id,Number(init));persist();
 ['pName','pNote','pInit','pPack','pAlias'].forEach(i=>$(i).value='');$('pHint').textContent='';
 renderProducts();renderStock();renderDashboard();addMsg('edit','Producto nuevo: '+name,'Categoría: '+p.cat+'.',p.id);toast('✔ Producto añadido: '+name);flash($('pr-'+p.id))};
@@ -596,10 +599,10 @@ document.querySelectorAll('[data-share]').forEach(el=>el.innerHTML=SHARE(el.data
 document.addEventListener('click',e=>{const b=e.target.closest('[data-sh]');if(!b)return;const k=b.dataset.sh,c=b.dataset.c;if(k==='inv'||k==='rep')doPDF(k,c);else if(k==='wa')shareWA(c);else sharePDF(c)});
 
 /* ===== Sin controlar + bandeja de avisos ===== */
-function staleList(){const n=staleDays();return data.products.map(p=>{const last=lastCtl(p.id);return{p,last,d:last?daysSince(last):null}}).filter(x=>x.d===null||x.d>=n).sort((a,b)=>(b.d??9999)-(a.d??9999))}
-function renderStale(){const l=staleList();$('staleList').innerHTML=!data.snapshots.length?'<div class="empty">Aún no hay controles guardados.</div>':l.length?l.slice(0,15).map(x=>`<div class="alert ${x.d===null||x.d>=staleDays()*2?'red':''}"><b>${esc(x.p.name)}</b> · ${x.d===null?'nunca controlado':'hace '+x.d+' día'+(x.d>1?'s':'')+' ('+fmt(x.last)+')'}</div>`).join('')+(l.length>15?`<div class="note">… y ${l.length-15} más</div>`:''):`<div class="empty">Todos los productos se controlaron en los últimos ${staleDays()} días.</div>`}
-function staleMsg(){const l=staleList();if(!l.length||!data.snapshots.length)return '';return `\n\n⏱️ *Sin controlar ≥ ${staleDays()} días (${l.length})*\n- `+l.slice(0,8).map(x=>x.p.name+(x.d===null?' (nunca)':' ('+x.d+' d)')).join('\n- ')}
-function staleCheck(){if(!data.snapshots.length||data.settings.lastStale===today())return;const l=staleList();data.settings.lastStale=today();persist();if(l.length)addMsg('stale',`${l.length} producto${l.length>1?'s':''} sin controlar ≥ ${staleDays()} días`,l.slice(0,10).map(x=>x.p.name+(x.d===null?' (nunca)':' ('+x.d+' d)')).join(', ')+(l.length>10?'…':''))}
+function staleList(){return data.products.map(p=>{const last=lastCtl(p.id);return{p,last,d:last?daysSince(last):null,due:dueDays(p)}}).filter(x=>x.d===null||x.d>=x.due).sort((a,b)=>(b.d??9999)-(a.d??9999))}
+function renderStale(){const l=staleList();$('staleList').innerHTML=!data.snapshots.length?'<div class="empty">Aún no hay controles guardados.</div>':l.length?l.slice(0,15).map(x=>`<div class="alert ${x.d===null||x.d>=x.due*2?'red':''}"><b>${esc(x.p.name)}</b> · ${x.d===null?'nunca controlado':'hace '+x.d+' día'+(x.d>1?'s':'')+' ('+fmt(x.last)+')'}</div>`).join('')+(l.length>15?`<div class="note">… y ${l.length-15} más</div>`:''):`<div class="empty">Todos los productos están dentro de su frecuencia de control configurada.</div>`}
+function staleMsg(){const l=staleList();if(!l.length||!data.snapshots.length)return '';return `\n\n⏱️ *Controles pendientes según frecuencia configurada (${l.length})*\n- `+l.slice(0,8).map(x=>x.p.name+(x.d===null?' (nunca)':' ('+x.d+' d)')).join('\n- ')}
+function staleCheck(){if(!data.snapshots.length||data.settings.lastStale===today())return;const l=staleList();data.settings.lastStale=today();persist();if(l.length)addMsg('stale',`${l.length} producto${l.length>1?'s':''} con control pendiente`,l.slice(0,10).map(x=>x.p.name+(x.d===null?' (nunca)':' ('+x.d+' d)')).join(', ')+(l.length>10?'…':''))}
 const TYPES={update:'🔄',alert:'⚠️',stale:'⏱️',edit:'✏️'};
 function updBadge(){const n=data.inbox.filter(m=>!m.read).length;$('inboxBadge').textContent=n>99?'99+':n||''}
 function sysNotify(t,b){if(data.settings.sys&&window.Notification&&Notification.permission==='granted'){try{new Notification(t,{body:b})}catch(e){}}}

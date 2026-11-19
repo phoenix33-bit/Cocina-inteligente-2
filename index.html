@@ -91,7 +91,7 @@ body.auth-locked .auth-screen{display:flex}
     <p class="auth-foot">Acceso privado · Kitchen Stock Control</p>
   </div>
 </section>
-<header><div class="brand"><div class="logo">🍃</div><div><h1>KITCHEN STOCK CONTROL</h1><p>Inventario inteligente · Cocina</p></div></div><div class="header-user"><small id="signedInEmail"></small><small id="cloudStatus" aria-live="polite">Nube: esperando acceso</small><button id="logoutButton" type="button">Cerrar sesión</button><div class="date" id="todayLabel"></div></div></header>
+<header><div class="brand"><div class="logo">🍃</div><div><h1>KITCHEN STOCK CONTROL</h1><p>Inventario inteligente · Cocina</p></div></div><div class="header-user"><small id="signedInEmail"></small><small id="cloudStatus" aria-live="polite">Nube: esperando acceso</small><button id="cloudReload" type="button" style="display:none;border:1px solid #e8c34d;background:#fff2b8;color:#3d3210;border-radius:8px;padding:6px 9px;font-size:11px">Recargar cambios</button><button id="logoutButton" type="button">Cerrar sesión</button><div class="date" id="todayLabel"></div></div></header>
 <main>
 <nav>
 <button class="active" data-tab="dashboard">Resumen</button><button data-tab="stock">Stock diario</button><button data-tab="products">Productos</button><button data-tab="recipes">Recetas prep</button><button data-tab="history">Historial</button><button data-tab="analysis">Análisis</button><button data-tab="inbox">Avisos<span class="bdg" id="inboxBadge"></span></button><button data-tab="backup">Copias de seguridad</button>
@@ -711,64 +711,112 @@ $('rcList').onclick=e=>{if(e.target.closest('#rcDemo')){rcDemo();return}const c=
 $('rcNew').onclick=()=>rcEdit();$('rcSearch').oninput=renderRecipes;
 $('rcClr').onclick=()=>{$('rcSearch').value='';renderRecipes();$('rcSearch').focus()};
 
-/* ===== Supabase: persistencia compartida del estado completo =====
-   Se usa una única fila JSON en app_settings para conservar el modelo v0.5
-   íntegro durante la primera conexión. La migración inicial se habilitará
-   por separado; una nube vacía nunca se sobrescribe automáticamente. */
+/* ===== Supabase: estado compartido + Realtime =====
+   El estado completo se mantiene en una fila JSON durante esta etapa.
+   Los cambios remotos se aplican solo cuando no hay ediciones locales pendientes. */
 const CLOUD_STATE_KEY='kitchen_stock_state_v1';
 let cloudClient=null,cloudUser=null,cloudReady=false,cloudHasState=false,cloudTimer=null,cloudInitFor='',cloudLoadingFor='';
+let cloudChannel=null,cloudDirty=false,cloudConflict=false,lastCloudWriteAt='',cloudApplyingRemote=false;
 function cloudStatus(message){const el=$('cloudStatus');if(el)el.textContent=message}
-function scheduleCloudSave(){
-  clearTimeout(cloudTimer);
-  cloudStatus('Nube: guardando…');
-  cloudTimer=setTimeout(saveCloudState,800);
+function cloudConflictUI(on){
+  cloudConflict=!!on;
+  const b=$('cloudReload');if(b)b.style.display=on?'inline-block':'none';
+  if(on)cloudStatus('Nube: cambios de otro usuario pendientes');
 }
-async function saveCloudState(){
-  if(!cloudReady||!cloudHasState||!cloudClient||!cloudUser)return;
-  const payload={key:CLOUD_STATE_KEY,value:data,updated_by:cloudUser.id,updated_at:new Date().toISOString()};
-  const {error}=await cloudClient.from('app_settings').upsert(payload,{onConflict:'key'});
-  if(error){console.error('Supabase save:',error);cloudStatus('Nube: error al guardar');return}
+function renderCloudState(){
+  setupSelects();renderDashboard();renderStock();renderProducts();renderHistory();renderAnalysis();renderRecipes();renderInbox();micUI();updProg();
+}
+function applyRemoteCloudState(remote){
+  if(!remote||!Array.isArray(remote.products)||!Array.isArray(remote.snapshots)||!Array.isArray(remote.cats))
+    throw new Error('El estado remoto no tiene un formato válido.');
+  data=migrate(remote);cats.splice(0,cats.length,...data.cats);
+  localStorage.setItem(KEY,JSON.stringify(data));
+  cloudDirty=false;cloudConflictUI(false);renderCloudState();
   cloudStatus('Nube: sincronizada');
 }
+function scheduleCloudSave(){
+  if(cloudApplyingRemote||cloudConflict)return;
+  cloudDirty=true;clearTimeout(cloudTimer);
+  cloudStatus('Nube: guardando…');
+  cloudTimer=setTimeout(saveCloudState,900);
+}
+async function saveCloudState(){
+  if(!cloudReady||!cloudHasState||!cloudClient||!cloudUser||cloudConflict)return;
+  const stamp=new Date().toISOString();
+  const payload={key:CLOUD_STATE_KEY,value:data,updated_by:cloudUser.id,updated_at:stamp};
+  const {error}=await cloudClient.from('app_settings').upsert(payload,{onConflict:'key'});
+  if(error){console.error('Supabase save:',error);cloudStatus('Nube: error al guardar');return}
+  lastCloudWriteAt=stamp;cloudDirty=false;cloudStatus('Nube: sincronizada');
+}
+async function receiveCloudChange(payload){
+  const row=payload?.new;
+  if(!row?.value||row.key!==CLOUD_STATE_KEY)return;
+  if(row.updated_at&&row.updated_at===lastCloudWriteAt)return;
+  if(cloudDirty||cloudConflict){
+    cloudConflictUI(true);
+    toast('Otro usuario actualizó el inventario. Tus cambios locales se conservaron; revisa antes de recargar.',6500);
+    return;
+  }
+  try{
+    cloudApplyingRemote=true;
+    applyRemoteCloudState(row.value);
+    toast('☁️ Inventario actualizado por otro usuario');
+  }catch(err){console.error('Realtime payload:',err);cloudStatus('Nube: error al recibir cambios')}
+  finally{cloudApplyingRemote=false}
+}
+async function reloadRemoteCloudState(){
+  if(!cloudClient||!cloudHasState)return;
+  if(!await ask('Esto reemplazará los cambios locales pendientes con la última versión guardada en la nube. ¿Continuar?','Recargar cambios'))return;
+  const {data:row,error}=await cloudClient.from('app_settings').select('value,updated_at').eq('key',CLOUD_STATE_KEY).maybeSingle();
+  if(error){toast('No se pudo recargar: '+error.message,6000);return}
+  if(!row?.value){toast('No hay una copia en la nube para recargar.');return}
+  try{
+    clearTimeout(cloudTimer);cloudApplyingRemote=true;lastCloudWriteAt=row.updated_at||'';
+    applyRemoteCloudState(row.value);toast('Cambios de la nube cargados');
+  }catch(err){toast('No se pudo aplicar la copia: '+err.message,6000)}
+  finally{cloudApplyingRemote=false}
+}
+$('cloudReload').onclick=reloadRemoteCloudState;
 window.initializeKitchenCloud=async function(client){
   if(!client)return;
-  const {data:authData}=await client.auth.getUser();
-  const user=authData?.user;
+  const {data:authData}=await client.auth.getUser(),user=authData?.user;
   if(!user)return;
   if(cloudInitFor===user.id&&cloudReady)return;
   if(cloudLoadingFor===user.id)return;
-  cloudLoadingFor=user.id;cloudInitFor=user.id;cloudReady=false;cloudHasState=false;cloudClient=client;cloudUser=user;
+  cloudLoadingFor=user.id;cloudInitFor=user.id;cloudReady=false;cloudHasState=false;
+  cloudClient=client;cloudUser=user;cloudDirty=false;cloudConflictUI(false);
   cloudStatus('Nube: conectando…');
   try{
     const {data:profile,error:profileError}=await client.from('profiles').select('role,display_name').eq('id',user.id).single();
     if(profileError)throw new Error('No se pudo leer el perfil: '+profileError.message);
     window.kitchenUserRole=profile.role;
-    const {data:row,error:stateError}=await client.from('app_settings').select('value').eq('key',CLOUD_STATE_KEY).maybeSingle();
+    const {data:row,error:stateError}=await client.from('app_settings').select('value,updated_at').eq('key',CLOUD_STATE_KEY).maybeSingle();
     if(stateError)throw new Error('No se pudo leer el inventario en la nube: '+stateError.message);
     if(row?.value){
-      const remote=row.value;
-      if(!remote||!Array.isArray(remote.products)||!Array.isArray(remote.snapshots)||!Array.isArray(remote.cats))
-        throw new Error('El estado guardado en la nube no tiene un formato válido.');
-      data=migrate(remote);
-      cats.splice(0,cats.length,...data.cats);
-      localStorage.setItem(KEY,JSON.stringify(data));
-      cloudHasState=true;
-      setupSelects();renderDashboard();renderStock();renderProducts();renderHistory();renderAnalysis();renderRecipes();renderInbox();micUI();updProg();
-      cloudStatus('Nube: sincronizada');
-      toast('☁️ Inventario cargado desde Supabase');
+      applyRemoteCloudState(row.value);cloudHasState=true;lastCloudWriteAt=row.updated_at||'';
     }else{
       cloudStatus('Nube: pendiente de migración');
       console.info('Supabase está conectado; todavía no hay un inventario inicial importado.');
     }
-    cloudReady=true;cloudLoadingFor='';
-    window.kitchenCloudReady=true;
+    cloudReady=true;cloudLoadingFor='';window.kitchenCloudReady=true;
+    if(cloudChannel)await client.removeChannel(cloudChannel);
+    cloudChannel=client.channel('kitchen-stock-live-'+user.id)
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'app_settings',filter:'key=eq.'+CLOUD_STATE_KEY},receiveCloudChange)
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'app_settings',filter:'key=eq.'+CLOUD_STATE_KEY},receiveCloudChange)
+      .subscribe(status=>{
+        if(status==='SUBSCRIBED')cloudStatus(cloudHasState?'Nube: sincronizada · tiempo real':'Nube: conectada · esperando importación');
+        else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT')cloudStatus('Nube: Realtime sin conexión');
+      });
   }catch(err){
     cloudReady=false;cloudLoadingFor='';cloudStatus('Nube: conexión pendiente');
     console.error(err);toast('No se pudo conectar el inventario: '+err.message,6000);
   }
 };
 window.resetKitchenCloudSession=function(){
-  clearTimeout(cloudTimer);cloudClient=null;cloudUser=null;cloudReady=false;cloudHasState=false;cloudInitFor='';cloudLoadingFor='';
+  clearTimeout(cloudTimer);
+  if(cloudClient&&cloudChannel)cloudClient.removeChannel(cloudChannel);
+  cloudChannel=null;cloudClient=null;cloudUser=null;cloudReady=false;cloudHasState=false;
+  cloudInitFor='';cloudLoadingFor='';cloudDirty=false;cloudConflictUI(false);lastCloudWriteAt='';
   window.kitchenCloudReady=false;window.kitchenUserRole=null;cloudStatus('Nube: desconectada');
 };
 

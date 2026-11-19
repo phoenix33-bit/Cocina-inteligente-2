@@ -193,6 +193,13 @@ grant select, insert, update, delete on
   public.recipe_items, public.app_settings, public.notifications,
   public.activity_log to authenticated;
 
+-- The JSON state row used by the current web app must also emit Realtime events.
+do $
+begin
+  alter publication supabase_realtime add table public.app_settings;
+exception when duplicate_object then null;
+end $;
+
 -- Enable Supabase Realtime for shared live updates.
 do $$
 begin

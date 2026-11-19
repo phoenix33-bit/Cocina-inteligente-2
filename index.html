@@ -91,7 +91,7 @@ body.auth-locked .auth-screen{display:flex}
     <p class="auth-foot">Acceso privado · Kitchen Stock Control</p>
   </div>
 </section>
-<header><div class="brand"><div class="logo">🍃</div><div><h1>KITCHEN STOCK CONTROL</h1><p>Inventario inteligente · Cocina</p></div></div><div class="header-user"><small id="signedInEmail"></small><button id="logoutButton" type="button">Cerrar sesión</button><div class="date" id="todayLabel"></div></div></header>
+<header><div class="brand"><div class="logo">🍃</div><div><h1>KITCHEN STOCK CONTROL</h1><p>Inventario inteligente · Cocina</p></div></div><div class="header-user"><small id="signedInEmail"></small><small id="cloudStatus" aria-live="polite">Nube: esperando acceso</small><button id="logoutButton" type="button">Cerrar sesión</button><div class="date" id="todayLabel"></div></div></header>
 <main>
 <nav>
 <button class="active" data-tab="dashboard">Resumen</button><button data-tab="stock">Stock diario</button><button data-tab="products">Productos</button><button data-tab="recipes">Recetas prep</button><button data-tab="history">Historial</button><button data-tab="analysis">Análisis</button><button data-tab="inbox">Avisos<span class="bdg" id="inboxBadge"></span></button><button data-tab="backup">Copias de seguridad</button>
@@ -236,7 +236,11 @@ const uOf=p=>p.type==='percent'?'%':p.unit;
 const rnd=n=>Math.round(n*100)/100;
 const nowT=()=>new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 let storeOK=true;
-function persist(){try{localStorage.setItem(KEY,JSON.stringify(data));storeOK=true}catch(e){if(storeOK)toast('⚠️ No se pudo guardar en este navegador. Exporta una copia JSON.',6000);storeOK=false}}
+function persist(){
+try{localStorage.setItem(KEY,JSON.stringify(data));storeOK=true}
+catch(e){if(storeOK)toast('⚠️ No se pudo guardar en este navegador. Exporta una copia JSON.',6000);storeOK=false}
+if(cloudReady&&cloudHasState)scheduleCloudSave();
+}
 function toast(m,ms=2800){const d=document.createElement('div');d.className='toast';d.textContent=m;$('toasts').appendChild(d);setTimeout(()=>d.remove(),ms)}
 window.alert=m=>toast(m,3600);
 function ask(msg,ok='Aceptar'){return new Promise(res=>{const m=$('modal');m.innerHTML=`<div class="mbox"><p>${esc(msg)}</p><div class="actions"><button class="btn secondary" data-r="0">Cancelar</button><button class="btn" data-r="1">${ok}</button></div></div>`;m.classList.add('on');m.onclick=e=>{const b=e.target.closest('[data-r]');if(b||e.target===m){m.classList.remove('on');res(b?.dataset.r==='1')}}})}
@@ -707,6 +711,66 @@ $('rcList').onclick=e=>{if(e.target.closest('#rcDemo')){rcDemo();return}const c=
 $('rcNew').onclick=()=>rcEdit();$('rcSearch').oninput=renderRecipes;
 $('rcClr').onclick=()=>{$('rcSearch').value='';renderRecipes();$('rcSearch').focus()};
 
+/* ===== Supabase: persistencia compartida del estado completo =====
+   Se usa una única fila JSON en app_settings para conservar el modelo v0.5
+   íntegro durante la primera conexión. La migración inicial se habilitará
+   por separado; una nube vacía nunca se sobrescribe automáticamente. */
+const CLOUD_STATE_KEY='kitchen_stock_state_v1';
+let cloudClient=null,cloudUser=null,cloudReady=false,cloudHasState=false,cloudTimer=null,cloudInitFor='';
+function cloudStatus(message){const el=$('cloudStatus');if(el)el.textContent=message}
+function scheduleCloudSave(){
+  clearTimeout(cloudTimer);
+  cloudStatus('Nube: guardando…');
+  cloudTimer=setTimeout(saveCloudState,800);
+}
+async function saveCloudState(){
+  if(!cloudReady||!cloudHasState||!cloudClient||!cloudUser)return;
+  const payload={key:CLOUD_STATE_KEY,value:data,updated_by:cloudUser.id,updated_at:new Date().toISOString()};
+  const {error}=await cloudClient.from('app_settings').upsert(payload,{onConflict:'key'});
+  if(error){console.error('Supabase save:',error);cloudStatus('Nube: error al guardar');return}
+  cloudStatus('Nube: sincronizada');
+}
+window.initializeKitchenCloud=async function(client){
+  if(!client)return;
+  const {data:authData}=await client.auth.getUser();
+  const user=authData?.user;
+  if(!user)return;
+  if(cloudInitFor===user.id&&cloudReady)return;
+  cloudInitFor=user.id;cloudReady=false;cloudHasState=false;cloudClient=client;cloudUser=user;
+  cloudStatus('Nube: conectando…');
+  try{
+    const {data:profile,error:profileError}=await client.from('profiles').select('role,display_name').eq('id',user.id).single();
+    if(profileError)throw new Error('No se pudo leer el perfil: '+profileError.message);
+    window.kitchenUserRole=profile.role;
+    const {data:row,error:stateError}=await client.from('app_settings').select('value').eq('key',CLOUD_STATE_KEY).maybeSingle();
+    if(stateError)throw new Error('No se pudo leer el inventario en la nube: '+stateError.message);
+    if(row?.value){
+      const remote=row.value;
+      if(!remote||!Array.isArray(remote.products)||!Array.isArray(remote.snapshots)||!Array.isArray(remote.cats))
+        throw new Error('El estado guardado en la nube no tiene un formato válido.');
+      data=migrate(remote);
+      cats.splice(0,cats.length,...data.cats);
+      localStorage.setItem(KEY,JSON.stringify(data));
+      cloudHasState=true;
+      setupSelects();renderDashboard();renderStock();renderProducts();renderHistory();renderAnalysis();renderRecipes();renderInbox();micUI();updProg();
+      cloudStatus('Nube: sincronizada');
+      toast('☁️ Inventario cargado desde Supabase');
+    }else{
+      cloudStatus('Nube: pendiente de migración');
+      console.info('Supabase está conectado; todavía no hay un inventario inicial importado.');
+    }
+    cloudReady=true;
+    window.kitchenCloudReady=true;
+  }catch(err){
+    cloudReady=false;cloudStatus('Nube: conexión pendiente');
+    console.error(err);toast('No se pudo conectar el inventario: '+err.message,6000);
+  }
+};
+window.resetKitchenCloudSession=function(){
+  clearTimeout(cloudTimer);cloudClient=null;cloudUser=null;cloudReady=false;cloudHasState=false;cloudInitFor='';
+  window.kitchenCloudReady=false;window.kitchenUserRole=null;cloudStatus('Nube: desconectada');
+};
+
 /* ===== Eventos e inicio ===== */
 $('saveStock').onclick=saveStock;$('dashDate').onchange=renderDashboard;$('filterCategory').onchange=renderStock;$('stockDate').onchange=renderStock;
 $('historyPick').onchange=historyDetail;$('historyCmp').onchange=historyDetail;$('onlyChanges').onchange=historyDetail;
@@ -733,7 +797,12 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
   function setSession(session){
     document.body.classList.toggle('auth-locked',!session);
     $auth('signedInEmail').textContent=session?.user?.email||'';
-    if(!session){$auth('loginPassword').value=''}
+    if(!session){
+      $auth('loginPassword').value='';
+      window.resetKitchenCloudSession?.();
+    }else if(window.initializeKitchenCloud){
+      window.initializeKitchenCloud(client);
+    }
   }
   if(!window.supabase?.createClient){
     showError('No se pudo cargar el servicio de acceso. Comprueba tu conexión e intenta recargar.');

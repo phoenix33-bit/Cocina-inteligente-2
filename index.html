@@ -54,10 +54,44 @@ input.bad{border-color:var(--red);background:var(--redbg)}
 .pbar{display:inline-block;vertical-align:middle;width:120px;height:8px;background:#e3e9e5;border-radius:6px;overflow:hidden;margin-left:8px}.pbar i{display:block;height:100%;background:var(--green)}
 .rcard{padding:12px;border:1px solid var(--line);border-radius:12px;margin-bottom:8px;cursor:pointer;background:#fff}
 .rcbox{max-width:680px;max-height:92vh;overflow:auto}.irow{display:grid;grid-template-columns:1fr 74px 78px 30px;gap:6px;margin-bottom:4px}.irow .inote{grid-column:1/-1;margin-bottom:6px}.steps{background:#f6f8f6;border-radius:10px;padding:10px;font-size:14px;margin-bottom:10px}
+
+/* Acceso v0.6: pantalla clara, con amarillo suave */
+body.auth-locked header,body.auth-locked main,body.auth-locked .fab,body.auth-locked .vp{display:none!important}
+.auth-screen{display:none;min-height:100vh;align-items:center;justify-content:center;padding:24px;background:linear-gradient(145deg,#fffdf5 0%,#fff 58%,#fff7d6 100%)}
+body.auth-locked .auth-screen{display:flex}
+.auth-card{width:min(100%,420px);background:#fff;border:1px solid #f1e6b9;border-radius:24px;padding:30px;box-shadow:0 18px 55px #6b57151a}
+.auth-mark{width:58px;height:58px;border-radius:18px;display:grid;place-items:center;background:#fff2b8;color:#765600;font-size:29px;margin-bottom:18px}
+.auth-card h1{font-size:24px;line-height:1.2;margin:0 0 7px;color:#25291f}
+.auth-card .auth-sub{margin:0 0 24px;color:#777568;font-size:14px}
+.auth-field{display:grid;gap:7px;margin:14px 0;color:#5d5a4d;font-size:13px;font-weight:650}
+.auth-field input{width:100%;padding:13px 14px;border:1px solid #e8e2ce;border-radius:12px;background:#fffef9;font-size:16px}
+.auth-field input:focus{outline:3px solid #fff0ae;border-color:#d8b64a}
+.auth-submit{width:100%;border:0;border-radius:12px;padding:13px 16px;background:#e8c34d;color:#3d3210;font-weight:750;font-size:15px;cursor:pointer;margin-top:8px}
+.auth-submit:disabled{opacity:.65;cursor:wait}
+.auth-error{display:none;padding:10px 12px;background:#fff0ed;color:#a33c2d;border-radius:10px;font-size:13px;margin:12px 0 0}
+.auth-foot{font-size:11px;color:#8b887c;text-align:center;margin:20px 0 0}
+.header-user{display:flex;align-items:center;gap:9px;justify-content:flex-end;flex-wrap:wrap}
+.header-user small{color:#e8e4d5;font-size:11px}
+.header-user button{border:1px solid #65766b;background:transparent;color:white;border-radius:9px;padding:6px 9px;font-size:11px;cursor:pointer}
+@media(max-width:520px){.auth-card{padding:24px 20px}.header-user{gap:6px}.header-user small{max-width:120px;overflow:hidden;text-overflow:ellipsis}}
 </style>
 </head>
-<body>
-<header><div class="brand"><div class="logo">🍃</div><div><h1>KITCHEN STOCK CONTROL</h1><p>Inventario inteligente · Cocina</p></div></div><div class="date" id="todayLabel"></div></header>
+<body class="auth-locked">
+<section class="auth-screen" id="authScreen" aria-label="Inicio de sesión">
+  <div class="auth-card">
+    <div class="auth-mark">🍋</div>
+    <h1>Kitchen Stock Control</h1>
+    <p class="auth-sub">Inicia sesión para acceder al inventario de cocina.</p>
+    <form id="loginForm">
+      <label class="auth-field">Correo electrónico<input id="loginEmail" type="email" autocomplete="username" placeholder="tu correo" required></label>
+      <label class="auth-field">Contraseña<input id="loginPassword" type="password" autocomplete="current-password" placeholder="Tu contraseña" required></label>
+      <button class="auth-submit" id="loginButton" type="submit">Iniciar sesión</button>
+      <div class="auth-error" id="authError" role="alert"></div>
+    </form>
+    <p class="auth-foot">Acceso privado · Kitchen Stock Control</p>
+  </div>
+</section>
+<header><div class="brand"><div class="logo">🍃</div><div><h1>KITCHEN STOCK CONTROL</h1><p>Inventario inteligente · Cocina</p></div></div><div class="header-user"><small id="signedInEmail"></small><button id="logoutButton" type="button">Cerrar sesión</button><div class="date" id="todayLabel"></div></div></header>
 <main>
 <nav>
 <button class="active" data-tab="dashboard">Resumen</button><button data-tab="stock">Stock diario</button><button data-tab="products">Productos</button><button data-tab="recipes">Recetas prep</button><button data-tab="history">Historial</button><button data-tab="analysis">Análisis</button><button data-tab="inbox">Avisos<span class="bdg" id="inboxBadge"></span></button><button data-tab="backup">Copias de seguridad</button>
@@ -685,5 +719,46 @@ $('resetData').onclick=async()=>{if(!await ask('Esto borrará los productos e in
 $('waNum').value=data.settings.wa||'';$('waNum').oninput=()=>{data.settings.wa=$('waNum').value;persist()};
 $('todayLabel').textContent=new Date().toLocaleDateString('es',{weekday:'short',day:'2-digit',month:'short',year:'numeric'});
 $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDashboard();renderStock();renderProducts();renderHistory();renderAnalysis();micUI();staleCheck();renderInbox();renderDashboard();renderRecipes();syncClr();updProg();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* Supabase Auth — v0.6 paso 1. La sincronización de datos se implementará después. */
+(function(){
+  const SUPABASE_URL='https://kbahtxxidtyyrtuduokw.supabase.co';
+  const SUPABASE_ANON_KEY='sb_publishable_OMm7D6lDHutQdGozZdMhhw_rUX4PB7i';
+  const $auth=id=>document.getElementById(id);
+  const form=$auth('loginForm'),button=$auth('loginButton'),errorBox=$auth('authError');
+  let client=null;
+  function showError(message){errorBox.textContent=message;errorBox.style.display='block'}
+  function setSession(session){
+    document.body.classList.toggle('auth-locked',!session);
+    $auth('signedInEmail').textContent=session?.user?.email||'';
+    if(!session){$auth('loginPassword').value=''}
+  }
+  if(!window.supabase?.createClient){
+    showError('No se pudo cargar el servicio de acceso. Comprueba tu conexión e intenta recargar.');
+    return;
+  }
+  client=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+  window.kitchenSupabase=client;
+  form.addEventListener('submit',async event=>{
+    event.preventDefault();errorBox.style.display='none';button.disabled=true;button.textContent='Comprobando…';
+    const email=$auth('loginEmail').value.trim(),password=$auth('loginPassword').value;
+    const {data,error}=await client.auth.signInWithPassword({email,password});
+    button.disabled=false;button.textContent='Iniciar sesión';
+    if(error){showError(error.message==='Invalid login credentials'?'Correo o contraseña incorrectos.':error.message);return}
+    setSession(data.session);
+  });
+  $auth('logoutButton').addEventListener('click',async()=>{
+    const {error}=await client.auth.signOut();
+    if(error)showError('No se pudo cerrar la sesión: '+error.message);
+    else setSession(null);
+  });
+  client.auth.onAuthStateChange((_event,session)=>setSession(session));
+  client.auth.getSession().then(({data,error})=>{
+    if(error){showError('No se pudo comprobar la sesión: '+error.message);return}
+    setSession(data.session);
+  });
+})();
 </script>
 </body></html>

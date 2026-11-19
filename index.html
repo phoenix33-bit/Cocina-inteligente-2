@@ -759,7 +759,7 @@ async function receiveCloudChange(payload){
   }
   try{
     cloudApplyingRemote=true;
-    applyRemoteCloudState(row.value);
+    applyRemoteCloudState(row.value);cloudHasState=true;
     toast('☁️ Inventario actualizado por otro usuario');
   }catch(err){console.error('Realtime payload:',err);cloudStatus('Nube: error al recibir cambios')}
   finally{cloudApplyingRemote=false}
@@ -835,7 +835,7 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-/* Supabase Auth — v0.6 paso 1. La sincronización de datos se implementará después. */
+/* Supabase Auth — v0.6: acceso y sesión para la aplicación compartida. */
 (function(){
   const SUPABASE_URL='https://kbahtxxidtyyrtuduokw.supabase.co';
   const SUPABASE_ANON_KEY='sb_publishable_OMm7D6lDHutQdGozZdMhhw_rUX4PB7i';

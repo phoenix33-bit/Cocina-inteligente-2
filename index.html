@@ -716,7 +716,7 @@ $('rcClr').onclick=()=>{$('rcSearch').value='';renderRecipes();$('rcSearch').foc
    íntegro durante la primera conexión. La migración inicial se habilitará
    por separado; una nube vacía nunca se sobrescribe automáticamente. */
 const CLOUD_STATE_KEY='kitchen_stock_state_v1';
-let cloudClient=null,cloudUser=null,cloudReady=false,cloudHasState=false,cloudTimer=null,cloudInitFor='';
+let cloudClient=null,cloudUser=null,cloudReady=false,cloudHasState=false,cloudTimer=null,cloudInitFor='',cloudLoadingFor='';
 function cloudStatus(message){const el=$('cloudStatus');if(el)el.textContent=message}
 function scheduleCloudSave(){
   clearTimeout(cloudTimer);
@@ -736,7 +736,8 @@ window.initializeKitchenCloud=async function(client){
   const user=authData?.user;
   if(!user)return;
   if(cloudInitFor===user.id&&cloudReady)return;
-  cloudInitFor=user.id;cloudReady=false;cloudHasState=false;cloudClient=client;cloudUser=user;
+  if(cloudLoadingFor===user.id)return;
+  cloudLoadingFor=user.id;cloudInitFor=user.id;cloudReady=false;cloudHasState=false;cloudClient=client;cloudUser=user;
   cloudStatus('Nube: conectando…');
   try{
     const {data:profile,error:profileError}=await client.from('profiles').select('role,display_name').eq('id',user.id).single();
@@ -759,15 +760,15 @@ window.initializeKitchenCloud=async function(client){
       cloudStatus('Nube: pendiente de migración');
       console.info('Supabase está conectado; todavía no hay un inventario inicial importado.');
     }
-    cloudReady=true;
+    cloudReady=true;cloudLoadingFor='';
     window.kitchenCloudReady=true;
   }catch(err){
-    cloudReady=false;cloudStatus('Nube: conexión pendiente');
+    cloudReady=false;cloudLoadingFor='';cloudStatus('Nube: conexión pendiente');
     console.error(err);toast('No se pudo conectar el inventario: '+err.message,6000);
   }
 };
 window.resetKitchenCloudSession=function(){
-  clearTimeout(cloudTimer);cloudClient=null;cloudUser=null;cloudReady=false;cloudHasState=false;cloudInitFor='';
+  clearTimeout(cloudTimer);cloudClient=null;cloudUser=null;cloudReady=false;cloudHasState=false;cloudInitFor='';cloudLoadingFor='';
   window.kitchenCloudReady=false;window.kitchenUserRole=null;cloudStatus('Nube: desconectada');
 };
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#17221d">
-<title>Kitchen Stock Control</title>
+<title>Kitchen Stock Control — TEST v0.7</title>
 <style>
 :root{--bg:#f3f5f2;--panel:#fff;--ink:#1c2922;--muted:#748078;--line:#e3e9e3;--green:#236b4b;--green2:#e6f2eb;--amber:#a86b16;--amberbg:#fff3dc;--red:#b33b3b;--redbg:#fdeaea;--shadow:0 8px 28px #17221d0b}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
@@ -81,7 +81,7 @@ body.auth-locked .auth-screen{display:flex}
   <div class="auth-card">
     <div class="auth-mark">🍋</div>
     <h1>Kitchen Stock Control</h1>
-    <p class="auth-sub">Inicia sesión para acceder al inventario de cocina.</p>
+    <p class="auth-sub"><strong>VERSIÓN DE PRUEBAS v0.7</strong><br>Base de datos de pruebas independiente. No usar para el stock real.</p>
     <form id="loginForm">
       <label class="auth-field">Correo electrónico<input id="loginEmail" type="email" autocomplete="username" placeholder="tu correo" required></label>
       <label class="auth-field">Contraseña<input id="loginPassword" type="password" autocomplete="current-password" placeholder="Tu contraseña" required></label>
@@ -840,8 +840,8 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
 <script>
 /* Supabase Auth — v0.6: acceso y sesión para la aplicación compartida. */
 (function(){
-  const SUPABASE_URL='https://kbahtxxidtyyrtuduokw.supabase.co';
-  const SUPABASE_ANON_KEY='sb_publishable_OMm7D6lDHutQdGozZdMhhw_rUX4PB7i';
+  const SUPABASE_URL='https://sxuqnyyapsuwdsmkuxli.supabase.co';
+  const SUPABASE_ANON_KEY='sb_publishable_7gdNGf81HId8i5MgREjtXQ_ZN2dkK_m';
   const $auth=id=>document.getElementById(id);
   const form=$auth('loginForm'),button=$auth('loginButton'),errorBox=$auth('authError');
   let client=null;

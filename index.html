@@ -70,6 +70,10 @@ body.auth-locked .auth-screen{display:flex}
 .auth-submit:disabled{opacity:.65;cursor:wait}
 .auth-error{display:none;padding:10px 12px;background:#fff0ed;color:#a33c2d;border-radius:10px;font-size:13px;margin:12px 0 0}
 .auth-foot{font-size:11px;color:#8b887c;text-align:center;margin:20px 0 0}
+.auth-link{border:0;background:none;color:#6f570d;text-decoration:underline;cursor:pointer;font:inherit;font-size:13px;padding:9px 0}
+.auth-notice{display:none;padding:10px 12px;background:#e6f2eb;color:#236b4b;border-radius:10px;font-size:13px;margin:12px 0 0}
+.auth-help{font-size:13px;color:#655f50;margin:9px 0}
+.auth-password-section[hidden],.auth-login-section[hidden],.auth-recovery-request[hidden]{display:none!important}
 .header-user{display:flex;align-items:center;gap:9px;justify-content:flex-end;flex-wrap:wrap}
 .header-user small{color:#e8e4d5;font-size:11px}
 .header-user button{border:1px solid #65766b;background:transparent;color:white;border-radius:9px;padding:6px 9px;font-size:11px;cursor:pointer}
@@ -88,6 +92,24 @@ body.auth-locked .auth-screen{display:flex}
       <button class="auth-submit" id="loginButton" type="submit">Iniciar sesión</button>
       <div class="auth-error" id="authError" role="alert"></div>
     </form>
+    <div class="auth-login-section" id="authLoginActions" style="text-align:center"><button type="button" id="forgotPassword" class="auth-link">¿Olvidaste tu contraseña?</button></div>
+    <div class="auth-recovery-request" id="authRecoveryRequest" hidden>
+      <p class="auth-help">Enviaremos un enlace para crear una contraseña nueva. Revisa también Spam.</p>
+      <form id="recoveryEmailForm">
+        <label class="auth-field">Correo electrónico<input id="recoveryEmail" type="email" autocomplete="email" required></label>
+        <button type="submit" class="auth-submit" id="sendRecoveryButton">Enviar enlace de recuperación</button>
+      </form>
+      <button type="button" id="backToLogin" class="auth-link">Volver al inicio de sesión</button>
+    </div>
+    <div class="auth-password-section" id="authNewPassword" hidden>
+      <p class="auth-help">Introduce una contraseña nueva para tu cuenta de pruebas.</p>
+      <form id="newPasswordForm">
+        <label class="auth-field">Contraseña nueva<input id="newPassword" type="password" autocomplete="new-password" minlength="8" required></label>
+        <label class="auth-field">Repetir contraseña<input id="confirmNewPassword" type="password" autocomplete="new-password" minlength="8" required></label>
+        <button type="submit" class="auth-submit" id="saveNewPasswordButton">Guardar contraseña nueva</button>
+      </form>
+    </div>
+    <div class="auth-notice" id="authNotice" role="status" aria-live="polite"></div>
     <p class="auth-foot">Acceso privado · Kitchen Stock Control</p>
   </div>
 </section>
@@ -838,17 +860,33 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-/* Supabase Auth — v0.6: acceso y sesión para la aplicación compartida. */
+/* Supabase Auth — v0.7 Test: acceso y recuperación de contraseña. */
 (function(){
   const SUPABASE_URL='https://sxuqnyyapsuwdsmkuxli.supabase.co';
   const SUPABASE_ANON_KEY='sb_publishable_7gdNGf81HId8i5MgREjtXQ_ZN2dkK_m';
   const $auth=id=>document.getElementById(id);
-  const form=$auth('loginForm'),button=$auth('loginButton'),errorBox=$auth('authError');
+  const form=$auth('loginForm'),button=$auth('loginButton'),errorBox=$auth('authError'),notice=$auth('authNotice');
   let client=null;
-  function showError(message){errorBox.textContent=message;errorBox.style.display='block'}
+  let recoveryMode=window.location.hash.includes('type=recovery')||new URLSearchParams(location.search).get('type')==='recovery';
+  function showError(message){errorBox.textContent=message;errorBox.style.display='block';notice.style.display='none'}
+  function showNotice(message){notice.textContent=message;notice.style.display='block';errorBox.style.display='none'}
+  function clearMessages(){notice.style.display='none';errorBox.style.display='none'}
+  function displayMode(mode){
+    form.hidden=mode!=='login';
+    $auth('authLoginActions').hidden=mode!=='login';
+    $auth('authRecoveryRequest').hidden=mode!=='request';
+    $auth('authNewPassword').hidden=mode!=='new-password';
+    // Forms use the standard hidden attribute; preserve the locked screen on password recovery.
+    form.style.display=mode==='login'?'':'none';
+    clearMessages();
+  }
   function setSession(session){
-    document.body.classList.toggle('auth-locked',!session);
+    document.body.classList.toggle('auth-locked',recoveryMode||!session);
     $auth('signedInEmail').textContent=session?.user?.email||'';
+    if(recoveryMode){
+      if(session)displayMode('new-password');
+      return;
+    }
     if(!session){
       $auth('loginPassword').value='';
       window.resetKitchenCloudSession?.();
@@ -863,23 +901,68 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
   client=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
   window.kitchenSupabase=client;
   form.addEventListener('submit',async event=>{
-    event.preventDefault();errorBox.style.display='none';button.disabled=true;button.textContent='Comprobando…';
+    event.preventDefault();clearMessages();button.disabled=true;button.textContent='Comprobando…';
     const email=$auth('loginEmail').value.trim(),password=$auth('loginPassword').value;
     const {data,error}=await client.auth.signInWithPassword({email,password});
     button.disabled=false;button.textContent='Iniciar sesión';
     if(error){showError(error.message==='Invalid login credentials'?'Correo o contraseña incorrectos.':error.message);return}
     setSession(data.session);
   });
+  $auth('forgotPassword').addEventListener('click',()=>{
+    $auth('recoveryEmail').value=$auth('loginEmail').value.trim();
+    displayMode('request');
+  });
+  $auth('backToLogin').addEventListener('click',()=>displayMode('login'));
+  $auth('recoveryEmailForm').addEventListener('submit',async event=>{
+    event.preventDefault();clearMessages();
+    const send=$auth('sendRecoveryButton');
+    send.disabled=true;send.textContent='Enviando…';
+    try{
+      const {error}=await client.auth.resetPasswordForEmail($auth('recoveryEmail').value.trim(),{
+        redirectTo:window.location.origin+window.location.pathname
+      });
+      if(error)throw error;
+      showNotice('Si la dirección está registrada, recibirás un enlace de recuperación. Revisa tu correo y Spam.');
+    }catch(error){
+      showError(/rate limit|too many/i.test(error.message)?'Límite temporal de correos de Supabase. No envíes más solicitudes por ahora.':error.message);
+    }finally{send.disabled=false;send.textContent='Enviar enlace de recuperación'}
+  });
+  $auth('newPasswordForm').addEventListener('submit',async event=>{
+    event.preventDefault();clearMessages();
+    const password=$auth('newPassword').value;
+    if(password!==$auth('confirmNewPassword').value){showError('Las contraseñas no coinciden.');return}
+    const save=$auth('saveNewPasswordButton');save.disabled=true;save.textContent='Guardando…';
+    try{
+      const {error}=await client.auth.updateUser({password});
+      if(error)throw error;
+      $auth('newPassword').value='';$auth('confirmNewPassword').value='';
+      // Finish the recovery flow by requiring a fresh login.
+      recoveryMode=false;
+      await client.auth.signOut();
+      if(location.hash||location.search)history.replaceState(null,'',location.pathname);
+      displayMode('login');setSession(null);
+      showNotice('Contraseña actualizada. Ahora inicia sesión con tu contraseña nueva.');
+    }catch(error){showError('No se pudo actualizar la contraseña: '+error.message)}
+    finally{save.disabled=false;save.textContent='Guardar contraseña nueva'}
+  });
   $auth('logoutButton').addEventListener('click',async()=>{
     const {error}=await client.auth.signOut();
     if(error)showError('No se pudo cerrar la sesión: '+error.message);
     else setSession(null);
   });
-  client.auth.onAuthStateChange((_event,session)=>setSession(session));
+  client.auth.onAuthStateChange((event,session)=>{
+    if(event==='PASSWORD_RECOVERY'){
+      recoveryMode=true;
+      displayMode('new-password');
+    }
+    setSession(session);
+  });
   client.auth.getSession().then(({data,error})=>{
     if(error){showError('No se pudo comprobar la sesión: '+error.message);return}
+    if(recoveryMode&&!data.session)showError('El enlace de recuperación no es válido o expiró. Solicita uno nuevo.');
     setSession(data.session);
   });
+
 })();
 </script>
 </body></html>

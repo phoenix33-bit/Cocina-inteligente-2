@@ -53,7 +53,8 @@ th,td{border-bottom:1px solid #e6ebe3;text-align:left;padding:9px 7px;vertical-a
 <label for="stockDate">Fecha del conteo</label>
 <input class="count-date" id="stockDate" type="date" required>
 <div id="productRows"></div>
-<p><button id="saveCountButton" type="button">Guardar conteo de PRUEBA</button></p>
+<p><button id="saveCountButton" type="button" disabled>Guardar conteo de PRUEBA</button> <button id="newCountButton" type="button" class="secondary">Nuevo conteo</button></p>
+<div id="countResult" role="status" aria-live="polite" class="hidden" style="padding:12px;border-radius:10px;background:#e1f3e4;color:#235b34;font-weight:650;margin:12px 0"></div>
 <small>Dos personas pueden registrar conteos independientes. Las diferencias de cantidades no representan ventas confirmadas.</small>
 </section>
 <section>
@@ -80,7 +81,13 @@ th,td{border-bottom:1px solid #e6ebe3;text-align:left;padding:9px 7px;vertical-a
   }
   var db=window.supabase.createClient(url,key);
   var currentUser=null,items=[],snapshots=[],snapValues=[],live=null;
-  var loaded=false,dirty=false,loading=false,pendingCount=null;
+  var loaded=false,dirty=false,loading=false,pendingCount=null,saving=false,countSaved=false,remoteGeneration=0;
+  var sessionRequestIds=new Set(),ownProductWrites=new Set();
+  function syncSaveButton(){ $("saveCountButton").disabled=!loaded||loading||saving||countSaved||!dirty; $("newCountButton").disabled=saving||loading||!loaded; $("reloadButton").disabled=saving||loading; $("logoutButton").disabled=saving; }
+  function countResult(s){$("countResult").textContent=s;$("countResult").classList.toggle("hidden",!s);}
+  function remoteChange(){remoteGeneration++;$("incoming").classList.remove("hidden");}
+  function editCount(){if(saving||countSaved)return;dirty=true;syncSaveButton();}
+  function lockCount(on){$("stockDate").disabled=on;$("productRows").querySelectorAll("input").forEach(function(el){el.disabled=on;});}
   function notice(s,bad){$('notice').textContent=s;$('notice').classList.toggle('bad',!!bad);}
   function node(tag,text,cls){
     var el=document.createElement(tag);if(text!==undefined)el.textContent=text;
@@ -90,6 +97,8 @@ th,td{border-bottom:1px solid #e6ebe3;text-align:left;padding:9px 7px;vertical-a
   function formatDate(s){try{return new Date(s).toLocaleString('es',{dateStyle:'short',timeStyle:'short'});}catch(e){return s;}}
   function today(){return new Date().toLocaleDateString('en-CA');}
   $('stockDate').value=today();
+  $('stockDate').addEventListener('input',editCount);
+  $('newCountButton').onclick=function(){if(saving||loading)return;if(pendingCount&&!confirm('Hay un envío sin confirmación. Si fue guardado, iniciar otro conteo podría duplicarlo. ¿Continuar?'))return;if(dirty&&!confirm('¿Descartar las cantidades sin guardar?'))return;pendingCount=null;countSaved=false;dirty=false;countResult('');$('stockDate').value=today();drawProducts();lockCount(false);syncSaveButton();};
   $('loginForm').addEventListener('submit',async function(e){
     e.preventDefault();var b=$('loginButton');b.disabled=true;notice('Comprobando acceso...');
     try{
@@ -103,16 +112,17 @@ th,td{border-bottom:1px solid #e6ebe3;text-align:left;padding:9px 7px;vertical-a
   $('logoutButton').onclick=async function(){
     if(live){await db.removeChannel(live);live=null;}
     await db.auth.signOut();
-    currentUser=null;loaded=false;dirty=false;
+    currentUser=null;loaded=false;dirty=false;pendingCount=null;countSaved=false;sessionRequestIds.clear();ownProductWrites.clear();countResult('');syncSaveButton();
     $('workspace').classList.add('hidden');$('loginPane').classList.remove('hidden');
     notice('Sesión cerrada.');
   };
   $('reloadButton').onclick=function(){
+    if(pendingCount){notice('Hay un envío sin confirmación. Reintenta guardar antes de actualizar.',true);return;}
     if(dirty&&!confirm('Hay valores escritos todavía sin guardar. ¿Descartarlos para actualizar?'))return;
-    refresh();
+    dirty=false;refresh();
   };
   $('saveCountButton').onclick=async function(){
-    if(!currentUser||!loaded)return;
+    if(!currentUser||!loaded||saving||loading||countSaved||!dirty)return;
     var values={};var entries=$('productRows').querySelectorAll('input[data-product]');
     for(var i=0;i<entries.length;i++){
       var el=entries[i],v=el.value.trim();
@@ -124,23 +134,24 @@ th,td{border-bottom:1px solid #e6ebe3;text-align:left;padding:9px 7px;vertical-a
       values[p.id]=Number(v);
     }
     if(Object.keys(values).length===0){notice('Introduce al menos una cantidad para guardar.',true);return;}
-    var b=$('saveCountButton');b.disabled=true;notice('Guardando conteo independiente...');
+    saving=true;lockCount(true);syncSaveButton();notice('Guardando conteo independiente...');
     var payload=$('stockDate').value+'|'+JSON.stringify(values);
     if(!pendingCount||pendingCount.payload!==payload){pendingCount={payload:payload,id:crypto.randomUUID()};}
-    var requestId=pendingCount.id;
+    var requestId=pendingCount.id;sessionRequestIds.add(requestId);
     try{
       var res=await db.rpc('save_inventory_count',{
         p_stock_date:$('stockDate').value,p_values:values,p_request_id:requestId
       });
       if(res.error)throw res.error;
-      pendingCount=null;dirty=false;notice('Conteo guardado con éxito. Identificador: '+res.data);
+      pendingCount=null;dirty=false;countSaved=true;
+      countResult('✓ Conteo guardado con éxito · '+$('stockDate').value+' · '+Object.keys(values).length+' productos. Pulsa «Nuevo conteo» para registrar otro.');
       await refresh(true);
     }catch(err){notice('No se pudo guardar el conteo: '+errorText(err),true);}
-    finally{b.disabled=false;}
+    finally{saving=false;lockCount(countSaved);syncSaveButton();}
   };
   async function refresh(skipWarning){
     if(loading)return;if(dirty&&!skipWarning){notice('Antes de actualizar, guarda o descarta las cantidades que escribiste.',true);return;}
-    loading=true;notice('Cargando datos de Supabase Test...');
+    loading=true;syncSaveButton();var generation=remoteGeneration;notice('Cargando datos de Supabase Test...');
     try{
       var results=await Promise.all([
         db.from('products').select('id,name,unit,control_type,revision,note,min_value,is_active').order('name'),
@@ -157,10 +168,10 @@ th,td{border-bottom:1px solid #e6ebe3;text-align:left;padding:9px 7px;vertical-a
         snapValues=v.data||[];
       }
       drawProducts();drawHistory();drawEditors();
-      loaded=true;dirty=false;$('incoming').classList.add('hidden');
+      loaded=true;dirty=false;lockCount(countSaved);if(generation===remoteGeneration)$('incoming').classList.add('hidden');
       notice('Datos actualizados · '+items.length+' productos ficticios · '+snapshots.length+' conteos visibles.');
     }catch(err){notice('Error cargando los datos de pruebas: '+errorText(err),true);}
-    finally{loading=false;}
+    finally{loading=false;syncSaveButton();}
   }
   function drawProducts(){
     var box=$('productRows');box.replaceChildren();
@@ -173,7 +184,7 @@ th,td{border-bottom:1px solid #e6ebe3;text-align:left;padding:9px 7px;vertical-a
       input.placeholder=p.control_type==='percent'?'0–100':'Cantidad';
       if(p.control_type==='percent')input.max='100';
       input.dataset.product=p.id;input.setAttribute('aria-label','Cantidad de '+p.name);
-      input.oninput=function(){dirty=true;};
+      input.oninput=editCount;
       div.append(info,input);box.appendChild(div);
     });
   }
@@ -205,16 +216,17 @@ th,td{border-bottom:1px solid #e6ebe3;text-align:left;padding:9px 7px;vertical-a
       var b=node('button','Guardar nota');b.className='secondary';
       b.onclick=async function(){
         b.disabled=true;
+        var writeKey=p.id+'|'+(p.revision+1);ownProductWrites.add(writeKey);
         try{
           var res=await db.from('products').update({note:input.value})
             .eq('id',p.id).eq('revision',p.revision)
             .select('id,revision,note').maybeSingle();
           if(res.error)throw res.error;
-          if(!res.data){notice('Conflicto de edición: otra sesión modificó '+p.name+'. Actualiza la vista y revisa los cambios antes de repetir.',true);return;}
+          if(!res.data){ownProductWrites.delete(writeKey);notice('Conflicto de edición: otra sesión modificó '+p.name+'. Actualiza la vista y revisa los cambios antes de repetir.',true);return;}
           p.revision=res.data.revision;p.note=res.data.note;
           info.querySelector('small').textContent='Versión actual: '+p.revision;
           notice('Nota guardada sin sobrescribir versiones ajenas.');
-        }catch(err){notice('Error al guardar nota: '+errorText(err),true);}
+        }catch(err){ownProductWrites.delete(writeKey);notice('Error al guardar nota: '+errorText(err),true);}
         finally{b.disabled=false;}
       };
       group.append(input,b);div.append(info,group);box.appendChild(div);
@@ -232,9 +244,8 @@ th,td{border-bottom:1px solid #e6ebe3;text-align:left;padding:9px 7px;vertical-a
     if(live){await db.removeChannel(live);live=null;}
     await refresh();
     live=db.channel('kitchen-multiuser-lab')
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'inventory_snapshots'},function(){$('incoming').classList.remove('hidden');})
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'inventory_values'},function(){$('incoming').classList.remove('hidden');})
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'products'},function(){$('incoming').classList.remove('hidden');})
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'inventory_snapshots'},function(event){var row=event.new||{};if(sessionRequestIds.has(row.request_id))return;remoteChange();})
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'products'},function(event){var row=event.new||{},id=row.id+'|'+row.revision;if(row.updated_by===currentUser?.id&&ownProductWrites.has(id)){ownProductWrites.delete(id);return;}remoteChange();})
       .subscribe();
   }
   db.auth.getSession().then(function(result){

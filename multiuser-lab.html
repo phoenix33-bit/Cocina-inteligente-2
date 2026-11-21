@@ -80,7 +80,7 @@ th,td{border-bottom:1px solid #e6ebe3;text-align:left;padding:9px 7px;vertical-a
   }
   var db=window.supabase.createClient(url,key);
   var currentUser=null,items=[],snapshots=[],snapValues=[],live=null;
-  var loaded=false,dirty=false,loading=false;
+  var loaded=false,dirty=false,loading=false,pendingCount=null;
   function notice(s,bad){$('notice').textContent=s;$('notice').classList.toggle('bad',!!bad);}
   function node(tag,text,cls){
     var el=document.createElement(tag);if(text!==undefined)el.textContent=text;
@@ -125,13 +125,15 @@ th,td{border-bottom:1px solid #e6ebe3;text-align:left;padding:9px 7px;vertical-a
     }
     if(Object.keys(values).length===0){notice('Introduce al menos una cantidad para guardar.',true);return;}
     var b=$('saveCountButton');b.disabled=true;notice('Guardando conteo independiente...');
-    var requestId=crypto.randomUUID();
+    var payload=$('stockDate').value+'|'+JSON.stringify(values);
+    if(!pendingCount||pendingCount.payload!==payload){pendingCount={payload:payload,id:crypto.randomUUID()};}
+    var requestId=pendingCount.id;
     try{
       var res=await db.rpc('save_inventory_count',{
         p_stock_date:$('stockDate').value,p_values:values,p_request_id:requestId
       });
       if(res.error)throw res.error;
-      dirty=false;notice('Conteo guardado con éxito. Identificador: '+res.data);
+      pendingCount=null;dirty=false;notice('Conteo guardado con éxito. Identificador: '+res.data);
       await refresh(true);
     }catch(err){notice('No se pudo guardar el conteo: '+errorText(err),true);}
     finally{b.disabled=false;}

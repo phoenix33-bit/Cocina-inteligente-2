@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Laboratorio multiusuario · Kitchen Stock Control TEST</title>
+<style>
+:root{font-family:system-ui,-apple-system,sans-serif;color:#233026;background:#f6f7f2}
+*{box-sizing:border-box}body{margin:0}main{max-width:880px;margin:auto;padding:20px 15px 70px}
+header{background:#173b2d;color:white;padding:20px 16px}header>div{max-width:880px;margin:auto}
+h1{font-size:23px;margin:0}h2{font-size:19px;margin:0 0 12px}p{line-height:1.45}
+section{background:white;padding:18px;border-radius:18px;border:1px solid #e3e9dd;margin:14px 0;box-shadow:0 5px 20px #12302208}
+label{display:block;font-size:13px;font-weight:650;margin:12px 0 5px}
+input{border:1px solid #cfd8c8;border-radius:10px;padding:12px;width:100%;font-size:16px}
+button{border:0;border-radius:10px;padding:12px 16px;font-size:14px;font-weight:700;background:#eac64c;color:#40330d;cursor:pointer}
+button.secondary{background:#e8efe9;color:#294b38}button:disabled{opacity:.6;cursor:wait}
+.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.row>*{flex:1 1 120px}
+small,.muted{color:#637367}#notice{padding:12px 14px;background:#e9f3e9;border-radius:10px}
+#notice.bad{background:#fff0ed;color:#a13320}
+.product{border-top:1px solid #edf0eb;padding:12px 0;display:grid;grid-template-columns:1fr minmax(105px,140px);gap:8px;align-items:center}
+.product small{display:block}.product input{max-width:140px}.product strong{font-size:15px}
+.count-date{max-width:230px}
+.history{overflow:auto}table{border-collapse:collapse;width:100%;font-size:13px;min-width:410px}
+th,td{border-bottom:1px solid #e6ebe3;text-align:left;padding:9px 7px;vertical-align:top}th{background:#f8f9f5}
+.note-area{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.note-area input{flex:1 1 220px}.note-area button{flex:0 0 auto}
+.hidden{display:none!important}
+.tag{display:inline-block;background:#fff4c1;border-radius:20px;padding:5px 10px;font-size:12px;color:#66521b}
+</style>
+</head>
+<body>
+<header><div><h1>Kitchen Stock Control · Laboratorio multiusuario</h1><p style="margin:7px 0 0">EXCLUSIVAMENTE PRUEBAS — no usar para stock real ni importar datos de producción.</p></div></header>
+<main>
+<div id="notice" role="status" aria-live="polite">Preparando conexión segura...</div>
+<section id="loginPane">
+<h2>Entrar en Supabase Test</h2>
+<form id="loginForm">
+<label for="loginEmail">Correo electrónico</label><input id="loginEmail" type="email" autocomplete="username" required>
+<label for="loginPassword">Contraseña de pruebas</label><input id="loginPassword" type="password" autocomplete="current-password" required>
+<p><button id="loginButton" type="submit">Iniciar sesión</button></p>
+</form><small>Esta pantalla solo utiliza el proyecto Supabase de pruebas. No te pediremos la contraseña por chat.</small>
+</section>
+<div id="workspace" class="hidden">
+<section>
+<div class="row"><div><strong id="identity"></strong><p class="muted" id="role" style="margin:5px 0"></p></div>
+<div style="text-align:right"><button id="reloadButton" class="secondary" type="button">Actualizar vista</button>
+<button id="logoutButton" class="secondary" type="button">Salir</button></div></div>
+<div id="incoming" class="tag hidden">Hay cambios de otros dispositivos. Pulsa «Actualizar vista» cuando termines.</div>
+</section>
+<section>
+<h2>Conteo independiente</h2>
+<p class="muted">Completa solo los productos que realmente hayas contado. Cada envío crea un registro histórico nuevo; no cambia los anteriores.</p>
+<label for="stockDate">Fecha del conteo</label>
+<input class="count-date" id="stockDate" type="date" required>
+<div id="productRows"></div>
+<p><button id="saveCountButton" type="button">Guardar conteo de PRUEBA</button></p>
+<small>Dos personas pueden registrar conteos independientes. Las diferencias de cantidades no representan ventas confirmadas.</small>
+</section>
+<section>
+<h2>Historial de pruebas</h2><p class="muted">Los últimos conteos se conservan por separado y se muestran del más reciente al más antiguo.</p>
+<div id="historyRows" class="history"></div>
+</section>
+<section>
+<h2>Prueba de conflictos al editar un producto</h2>
+<p class="muted">Solo modifica la nota de un producto ficticio. Si otra sesión lo editó primero, se rechazará tu versión desactualizada.</p>
+<div id="editProductRows"></div>
+</section>
+<p class="muted" style="font-size:12px">Este laboratorio es independiente de la pantalla principal de Kitchen Stock Control. No migra los 123 productos ni modifica el guardado JSON antiguo.</p>
+</div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+(function(){
+  'use strict';
+  var url='https://sxuqnyyapsuwdsmkuxli.supabase.co';
+  var key='sb_publishable_7gdNGf81HId8i5MgREjtXQ_ZN2dkK_m';
+  var $=function(id){return document.getElementById(id);};
+  if(!window.supabase||!window.supabase.createClient){
+    $('notice').textContent='No se pudo cargar Supabase. Comprueba tu conexión.';return;
+  }
+  var db=window.supabase.createClient(url,key);
+  var currentUser=null,items=[],snapshots=[],snapValues=[],live=null;
+  var loaded=false,dirty=false,loading=false;
+  function notice(s,bad){$('notice').textContent=s;$('notice').classList.toggle('bad',!!bad);}
+  function node(tag,text,cls){
+    var el=document.createElement(tag);if(text!==undefined)el.textContent=text;
+    if(cls)el.className=cls;return el;
+  }
+  function errorText(err){return err&&err.message?err.message:String(err);}
+  function formatDate(s){try{return new Date(s).toLocaleString('es',{dateStyle:'short',timeStyle:'short'});}catch(e){return s;}}
+  function today(){return new Date().toLocaleDateString('en-CA');}
+  $('stockDate').value=today();
+  $('loginForm').addEventListener('submit',async function(e){
+    e.preventDefault();var b=$('loginButton');b.disabled=true;notice('Comprobando acceso...');
+    try{
+      var res=await db.auth.signInWithPassword({email:$('loginEmail').value.trim(),password:$('loginPassword').value});
+      if(res.error)throw res.error;
+      $('loginPassword').value='';
+      await start(res.data.user);
+    }catch(err){notice('No se pudo acceder: '+errorText(err),true);}
+    finally{b.disabled=false;}
+  });
+  $('logoutButton').onclick=async function(){
+    if(live){await db.removeChannel(live);live=null;}
+    await db.auth.signOut();
+    currentUser=null;loaded=false;dirty=false;
+    $('workspace').classList.add('hidden');$('loginPane').classList.remove('hidden');
+    notice('Sesión cerrada.');
+  };
+  $('reloadButton').onclick=function(){
+    if(dirty&&!confirm('Hay valores escritos todavía sin guardar. ¿Descartarlos para actualizar?'))return;
+    refresh();
+  };
+  $('saveCountButton').onclick=async function(){
+    if(!currentUser||!loaded)return;
+    var values={};var entries=$('productRows').querySelectorAll('input[data-product]');
+    for(var i=0;i<entries.length;i++){
+      var el=entries[i],v=el.value.trim();
+      if(v==='')continue;
+      var p=items.find(function(x){return x.id===el.dataset.product;});
+      if(!p||!Number.isFinite(Number(v))||Number(v)<0||(p.control_type==='percent'&&Number(v)>100)){
+        notice('Cantidad inválida para '+(p?p.name:'producto'),true);return;
+      }
+      values[p.id]=Number(v);
+    }
+    if(Object.keys(values).length===0){notice('Introduce al menos una cantidad para guardar.',true);return;}
+    var b=$('saveCountButton');b.disabled=true;notice('Guardando conteo independiente...');
+    var requestId=crypto.randomUUID();
+    try{
+      var res=await db.rpc('save_inventory_count',{
+        p_stock_date:$('stockDate').value,p_values:values,p_request_id:requestId
+      });
+      if(res.error)throw res.error;
+      dirty=false;notice('Conteo guardado con éxito. Identificador: '+res.data);
+      await refresh(true);
+    }catch(err){notice('No se pudo guardar el conteo: '+errorText(err),true);}
+    finally{b.disabled=false;}
+  };
+  async function refresh(skipWarning){
+    if(loading)return;if(dirty&&!skipWarning){notice('Antes de actualizar, guarda o descarta las cantidades que escribiste.',true);return;}
+    loading=true;notice('Cargando datos de Supabase Test...');
+    try{
+      var results=await Promise.all([
+        db.from('products').select('id,name,unit,control_type,revision,note,min_value,is_active').order('name'),
+        db.from('inventory_snapshots').select('id,stock_date,saved_at,created_by').order('saved_at',{ascending:false}).limit(30)
+      ]);
+      for(var i=0;i<results.length;i++)if(results[i].error)throw results[i].error;
+      items=results[0].data.filter(function(x){return x.id.startsWith('test-')&&x.is_active;});
+      snapshots=results[1].data||[];
+      snapValues=[];
+      if(snapshots.length){
+        var v=await db.from('inventory_values').select('snapshot_id,product_id,value')
+          .in('snapshot_id',snapshots.map(function(s){return s.id;})).limit(1000);
+        if(v.error)throw v.error;
+        snapValues=v.data||[];
+      }
+      drawProducts();drawHistory();drawEditors();
+      loaded=true;dirty=false;$('incoming').classList.add('hidden');
+      notice('Datos actualizados · '+items.length+' productos ficticios · '+snapshots.length+' conteos visibles.');
+    }catch(err){notice('Error cargando los datos de pruebas: '+errorText(err),true);}
+    finally{loading=false;}
+  }
+  function drawProducts(){
+    var box=$('productRows');box.replaceChildren();
+    if(!items.length){box.appendChild(node('p','No hay productos ficticios disponibles.'));return;}
+    items.forEach(function(p){
+      var div=node('div',undefined,'product'),info=node('div');
+      info.appendChild(node('strong',p.name));
+      info.appendChild(node('small',p.control_type==='percent'?'Porcentaje (0–100)':'Unidad: '+p.unit));
+      var input=node('input');input.type='number';input.min='0';input.step='any';
+      input.placeholder=p.control_type==='percent'?'0–100':'Cantidad';
+      if(p.control_type==='percent')input.max='100';
+      input.dataset.product=p.id;input.setAttribute('aria-label','Cantidad de '+p.name);
+      input.oninput=function(){dirty=true;};
+      div.append(info,input);box.appendChild(div);
+    });
+  }
+  function drawHistory(){
+    var box=$('historyRows');box.replaceChildren();
+    if(!snapshots.length){box.appendChild(node('p','Todavía no hay conteos de prueba.'));return;}
+    var table=node('table'),head=node('thead'),tr=node('tr');
+    ['Fecha','Registrado','Cantidades'].forEach(function(label){tr.appendChild(node('th',label));});
+    head.appendChild(tr);table.appendChild(head);
+    var body=node('tbody');
+    snapshots.forEach(function(s){
+      var r=node('tr'),counts=snapValues.filter(function(v){return v.snapshot_id===s.id&&v.product_id.startsWith('test-');});
+      var readable=counts.map(function(v){
+        var p=items.find(function(x){return x.id===v.product_id;});
+        return (p?p.name:v.product_id)+': '+v.value;
+      }).join(' · ');
+      r.append(node('td',s.stock_date),node('td',formatDate(s.saved_at)),node('td',readable||'—'));
+      body.appendChild(r);
+    });
+    table.appendChild(body);box.appendChild(table);
+  }
+  function drawEditors(){
+    var box=$('editProductRows');box.replaceChildren();
+    items.forEach(function(p){
+      var div=node('div',undefined,'product'),info=node('div');
+      info.append(node('strong',p.name),node('small','Versión actual: '+p.revision));
+      var group=node('div',undefined,'note-area'),input=node('input');input.type='text';
+      input.value=p.note||'';input.setAttribute('aria-label','Nota de '+p.name);
+      var b=node('button','Guardar nota');b.className='secondary';
+      b.onclick=async function(){
+        b.disabled=true;
+        try{
+          var res=await db.from('products').update({note:input.value})
+            .eq('id',p.id).eq('revision',p.revision)
+            .select('id,revision,note').maybeSingle();
+          if(res.error)throw res.error;
+          if(!res.data){notice('Conflicto de edición: otra sesión modificó '+p.name+'. Actualiza la vista y revisa los cambios antes de repetir.',true);return;}
+          p.revision=res.data.revision;p.note=res.data.note;
+          info.querySelector('small').textContent='Versión actual: '+p.revision;
+          notice('Nota guardada sin sobrescribir versiones ajenas.');
+        }catch(err){notice('Error al guardar nota: '+errorText(err),true);}
+        finally{b.disabled=false;}
+      };
+      group.append(input,b);div.append(info,group);box.appendChild(div);
+    });
+  }
+  async function start(user){
+    if(!user)return;
+    currentUser=user;
+    var p=await db.from('profiles').select('role').eq('id',user.id).single();
+    if(p.error||!p.data||!['admin','editor'].includes(p.data.role)){
+      notice('Tu usuario no dispone de un rol válido en Supabase Test.',true);return;
+    }
+    $('loginPane').classList.add('hidden');$('workspace').classList.remove('hidden');
+    $('identity').textContent=user.email;$('role').textContent='Rol de pruebas: '+p.data.role;
+    if(live){await db.removeChannel(live);live=null;}
+    await refresh();
+    live=db.channel('kitchen-multiuser-lab')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'inventory_snapshots'},function(){$('incoming').classList.remove('hidden');})
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'inventory_values'},function(){$('incoming').classList.remove('hidden');})
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'products'},function(){$('incoming').classList.remove('hidden');})
+      .subscribe();
+  }
+  db.auth.getSession().then(function(result){
+    if(result.error){notice('No se pudo comprobar la sesión: '+errorText(result.error),true);return;}
+    if(result.data.session)start(result.data.session.user);
+    else notice('Inicia sesión para entrar al laboratorio de pruebas.');
+  }).catch(function(err){notice('Error de conexión: '+errorText(err),true);});
+})();
+</script>
+</body>
+</html>

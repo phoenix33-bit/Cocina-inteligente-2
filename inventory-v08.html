@@ -91,8 +91,8 @@ button:disabled{opacity:.5;cursor:not-allowed}
       <label class="auth-field">Correo electrónico<input id="loginEmail" type="email" autocomplete="username" placeholder="tu correo" required></label>
       <label class="auth-field">Contraseña<input id="loginPassword" type="password" autocomplete="current-password" placeholder="Tu contraseña" required></label>
       <button class="auth-submit" id="loginButton" type="submit">Iniciar sesión</button>
-      <div class="auth-error" id="authError" role="alert"></div>
     </form>
+    <div class="auth-error" id="authError" role="alert"></div>
     <div class="auth-login-section" id="authLoginActions" style="text-align:center"><button type="button" id="forgotPassword" class="auth-link">¿Olvidaste tu contraseña?</button></div>
     <div class="auth-recovery-request" id="authRecoveryRequest" hidden>
       <p class="auth-help">Enviaremos un enlace para crear una contraseña nueva. Revisa también Spam.</p>
@@ -282,8 +282,8 @@ curDate=date;syncClr();
 const ck=data.checks[date]||{},cf=$('checkFilter').value;
 const products=data.products.filter(p=>(cat==='all'||p.cat===cat)&&(!q||norm(p.name).includes(q))&&(cf==='all'||(cf==='pending'?!ck[p.id]:!!ck[p.id])));
 const groups=cats.map(c=>({c,items:products.filter(p=>p.cat===c)})).filter(g=>g.items.length);
-$('stockItems').innerHTML=groups.length?groups.map(g=>`<div class="section-title">${esc(g.c)}</div>`+g.items.map(p=>{const v=vals[p.id]??'',lc=lastCtl(p.id),dd=lc?daysSince(lc):null;return `<div class="item${ck[p.id]?' checked':''}" id="row-${p.id}"><div><strong>${esc(p.name)} <button class="ico" data-edit="${p.id}" aria-label="Editar ${esc(p.name)}">✏️</button><button class="ico" data-chk="${p.id}" aria-label="Verificar ${esc(p.name)}">${ck[p.id]?'✅':'⬜'}</button>${rcBtn(p.id)}</strong><small class="okc">${ck[p.id]?'Verificado '+hm(ck[p.id]):''}</small><small>Mínimo: ${p.min} ${esc(uOf(p))}${packTxt(p)}</small><small class="${dd===null||dd>=dueDays(p)?'stale':''}">${ctlTxt(lc)}</small></div><input aria-label="${esc(p.name)}" type="number" inputmode="decimal" min="0" ${p.type==='percent'?'max="100"':''} step="any" data-value="${p.id}" value="${esc(v)}" placeholder="${p.type==='percent'?'0–100':'Cantidad'}"><div class="unit">${esc(uOf(p))}<br><span data-pill>${v===''?'':pill(status(p,v))}</span><small data-tot>${totTxt(p,v)}</small></div></div>`}).join('')).join(''):`<div class="empty">No se encontraron productos.${q?` <button class="btn small" data-newprod="1">➕ Agregar «${esc(raw)}»</button>`:''}</div>`;
-updProg();
+$('stockItems').innerHTML=groups.length?groups.map(g=>`<div class="section-title">${esc(g.c)}</div>`+g.items.map(p=>{const v=vals[p.id]??'',lc=lastCtl(p.id),dd=lc?daysSince(lc):null,last=lastVal(p.id);return `<div class="item${ck[p.id]?' checked':''}" id="row-${p.id}"><div><strong>${esc(p.name)} <button class="ico" data-edit="${p.id}" aria-label="Editar ${esc(p.name)}">✏️</button><button class="ico" disabled title="Verificación manual pendiente" aria-label="Verificación manual pendiente">${ck[p.id]?'✅':'⬜'}</button>${rcBtn(p.id)}</strong><small class="okc">${ck[p.id]?'Verificado '+hm(ck[p.id]):''}</small><small>Mínimo: ${p.min} ${esc(uOf(p))}${packTxt(p)}</small><small class="${dd===null||dd>=dueDays(p)?'stale':''}">${ctlTxt(lc)}</small>${last?`<small>Último stock: ${esc(last.v)} ${esc(uOf(p))} (${fmt(last.date)})</small>`:''}</div><input aria-label="${esc(p.name)}" type="number" inputmode="decimal" min="0" ${p.type==='percent'?'max="100"':''} step="any" data-value="${p.id}" value="${esc(v)}" placeholder="${p.type==='percent'?'0–100':'Cantidad'}"><div class="unit">${esc(uOf(p))}<br><span data-pill>${v===''?'':pill(status(p,v))}</span><small data-tot>${totTxt(p,v)}</small></div></div>`}).join('')).join(''):`<div class="empty">No se encontraron productos.${q?` <button class="btn small" data-newprod="1">➕ Agregar «${esc(raw)}»</button>`:''}</div>`;
+updProg();updateDraftStatus();
 }
 function queueSave(){/* El borrador se conserva al escribir; el conteo se confirma manualmente. */ captureDraft()}
 let pend=[];
@@ -739,8 +739,8 @@ let cloudClient=null,cloudUser=null,cloudReady=false,cloudBusy=false,cloudLoadin
 let stockDrafts=Object.create(null),cloudPending=null,countLocked=false,ownRequests=new Set(),ownProductWrites=new Set();
 function cloudStatus(message){$('cloudStatus').textContent=message}
 function hasDraft(){return Object.values(stockDrafts).some(o=>Object.values(o).some(v=>v!==''))}
-function updateDraftStatus(){const draft=stockDrafts[$('stockDate').value]||{},n=Object.values(draft).filter(v=>v!=='').length;$('saveState').textContent=cloudPending?'Envío pendiente de confirmación · reintenta el mismo conteo':countLocked?'Conteo guardado · pulsa Nuevo conteo':n?n+' cantidades en borrador · aún sin guardar':'Introduce las cantidades del conteo';setBusyUI()}
-function setBusyUI(){const blocked=!cloudReady||cloudBusy||cloudLoading;$('saveStock').disabled=blocked||countLocked||(!cloudPending&&!Object.values(stockDrafts[$('stockDate').value]||{}).some(v=>v!==''));$('newCount').disabled=blocked||!!cloudPending;$('stockDate').disabled=blocked||countLocked||!!cloudPending;$('addProduct').disabled=blocked;$('addCat').disabled=blocked;$('cloudReload').disabled=cloudBusy||cloudLoading;$('logoutButton').disabled=cloudBusy||cloudLoading;document.querySelectorAll('#stockItems input[data-value]').forEach(el=>el.disabled=blocked||countLocked||!!cloudPending)}
+function updateDraftStatus(){const draft=stockDrafts[$('stockDate').value]||{},n=Object.values(draft).filter(v=>v!=='').length;$('saveState').textContent=cloudBusy&&cloudPending?'Guardando conteo…':cloudPending?'Envío pendiente de confirmación · reintenta el mismo conteo':countLocked?'Conteo guardado · pulsa Nuevo conteo':n?n+' cantidades en borrador · aún sin guardar':'Introduce las cantidades del conteo';setBusyUI()}
+function setBusyUI(){const blocked=!cloudReady||cloudBusy||cloudLoading;$('saveStock').disabled=blocked||countLocked||(!cloudPending&&!Object.values(stockDrafts[$('stockDate').value]||{}).some(v=>v!==''));$('newCount').disabled=blocked||!!cloudPending;$('stockDate').disabled=blocked||countLocked||!!cloudPending;$('addProduct').disabled=blocked;$('addCat').disabled=blocked;$('cloudReload').disabled=cloudBusy||cloudLoading;$('logoutButton').disabled=cloudBusy||cloudLoading;document.querySelectorAll('#stockItems input[data-value]').forEach(el=>el.disabled=blocked||countLocked||!!cloudPending);document.querySelectorAll('#stockItems [data-edit],#productList button').forEach(el=>el.disabled=blocked)}
 function captureDraft(){if(!cloudReady||cloudBusy||cloudPending||countLocked)return;const date=curDate||$('stockDate').value;const d=stockDrafts[date]||(stockDrafts[date]=Object.create(null));document.querySelectorAll('#stockItems [data-value]').forEach(i=>{if(i.value==='')delete d[i.dataset.value];else d[i.dataset.value]=i.value});updateDraftStatus()}
 function receipt(message){const el=$('countReceipt');el.textContent=message;el.style.display=message?'block':'none'}
 function renderCloudState(){setupSelects();renderDashboard();renderStock();renderProducts();renderHistory();renderAnalysis();renderRecipes();renderInbox();updProg();updateDraftStatus()}
@@ -762,7 +762,7 @@ if(cloudPending){if(cloudPending.date!==date)return toast('Finaliza el envío pe
 else{for(const [id,str] of Object.entries(draft)){if(str==='')continue;const p=prod(id),value=Number(str);if(!p||!Number.isFinite(value)||value<0||(p.type==='percent'&&value>100))return toast('Cantidad inválida o producto archivado: '+(p?.name||id),6000);values[id]=value;}if(!date||!Object.keys(values).length)return toast('Introduce al menos una cantidad');cloudPending={date,values:{...values},id:crypto.randomUUID()};}
 cloudBusy=true;ownRequests.add(cloudPending.id);updateDraftStatus();try{const res=await cloudClient.rpc('save_inventory_count',{p_stock_date:cloudPending.date,p_values:cloudPending.values,p_request_id:cloudPending.id});if(res.error)throw res.error;if(!res.data)throw Error('No llegó la confirmación del servidor');
 const n=Object.keys(cloudPending.values).length;delete stockDrafts[date];cloudPending=null;countLocked=true;receipt('✓ Conteo guardado con éxito · '+fmt(date)+' · '+n+' productos. Pulsa Nuevo conteo para registrar otro.');await refreshCloud();toast('Conteo guardado correctamente');
-}catch(e){toast('Guardado sin confirmar: '+e.message+' · pulsa Guardar conteo para reintentar.',8000);}
+}catch(e){if(['22023','42501','23503','23514'].includes(e.code)){ownRequests.delete(cloudPending.id);cloudPending=null;toast('Conteo rechazado: '+e.message+' · revisa los valores y vuelve a guardar.',8000)}else{toast('Guardado sin confirmar: '+e.message+' · pulsa Guardar conteo para reintentar.',8000);}}
 finally{cloudBusy=false;updateDraftStatus()}}
 async function writeProductPatch(p,patch,label){if(!cloudReady||cloudBusy||cloudLoading)return false;cloudBusy=true;setBusyUI();const token=p.id+'|'+(p.revision+1);ownProductWrites.add(token);try{const res=await cloudClient.from('products').update(patch).eq('id',p.id).eq('revision',p.revision).select('id,revision').maybeSingle();if(res.error)throw res.error;if(!res.data){ownProductWrites.delete(token);remoteChange();toast('Conflicto: otra sesión cambió el producto. Cierra la edición, actualiza y revisa antes de guardar.',8000);return false;}await refreshCloud();toast(label);return true;}catch(e){ownProductWrites.delete(token);toast('No se pudo guardar: '+e.message,7000);return false;}finally{cloudBusy=false;setBusyUI()}}
 window.initializeKitchenCloud=async function(client,knownUser){if(!client)return;const user=knownUser||(await client.auth.getUser()).data?.user;if(!user)return;if(cloudInitFor===user.id)return;cloudInitFor=user.id;cloudClient=client;cloudUser=user;const epoch=++cloudEpoch;cloudStatus('Nube: comprobando permisos…');document.querySelector('main').inert=true;try{
@@ -795,7 +795,7 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
   const SUPABASE_ANON_KEY='sb_publishable_7gdNGf81HId8i5MgREjtXQ_ZN2dkK_m';
   const $auth=id=>document.getElementById(id);
   const form=$auth('loginForm'),button=$auth('loginButton'),errorBox=$auth('authError'),notice=$auth('authNotice');
-  let client=null;
+  let client=null,authGeneration=0;
   let recoveryMode=window.location.hash.includes('type=recovery')||new URLSearchParams(location.search).get('type')==='recovery';
   function showError(message){errorBox.textContent=message;errorBox.style.display='block';notice.style.display='none'}
   function showNotice(message){notice.textContent=message;notice.style.display='block';errorBox.style.display='none'}
@@ -810,6 +810,7 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
     clearMessages();
   }
   function setSession(session){
+    const generation=++authGeneration;
     document.body.classList.toggle('auth-locked',recoveryMode||!session);
     $auth('signedInEmail').textContent=session?.user?.email||'';
     if(recoveryMode){
@@ -820,7 +821,7 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
       $auth('loginPassword').value='';
       window.resetKitchenCloudSession?.();
     }else if(window.initializeKitchenCloud){
-      setTimeout(()=>window.initializeKitchenCloud(client,session.user),0);
+      setTimeout(()=>{if(generation===authGeneration)window.initializeKitchenCloud(client,session.user)},0);
     }
   }
   if(!window.supabase?.createClient){

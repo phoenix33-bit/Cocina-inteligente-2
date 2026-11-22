@@ -116,6 +116,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 </section>
 <header><div class="brand"><div class="logo">🍃</div><div><h1>KITCHEN STOCK CONTROL</h1><p>Inventario inteligente · Cocina</p></div></div><div class="header-user"><small id="signedInEmail"></small><small id="cloudStatus" aria-live="polite">Nube: esperando acceso</small><button id="cloudReload" type="button" style="display:none;border:1px solid #e8c34d;background:#fff2b8;color:#3d3210;border-radius:8px;padding:6px 9px;font-size:11px">Recargar cambios</button><button id="logoutButton" type="button">Cerrar sesión</button><div class="date" id="todayLabel"></div></div></header>
 <main>
+<div id="syncBanner" role="status" aria-live="polite" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;background:#fff3c6;color:#5f4c16;padding:14px 16px;margin:12px 0;border-radius:14px;border:1px solid #ead179"><span id="syncBannerText" style="flex:1 1 200px">Se detectaron cambios de otra sesión.</span><button id="syncBannerReload" class="btn secondary small" type="button">Actualizar vista</button></div>
 <nav>
 <button class="active" data-tab="dashboard">Resumen</button><button data-tab="stock">Stock diario</button><button data-tab="products">Productos</button><button data-tab="recipes">Recetas prep</button><button data-tab="history">Historial</button><button data-tab="analysis">Análisis</button><button data-tab="inbox">Avisos<span class="bdg" id="inboxBadge"></span></button><button data-tab="backup">Copias de seguridad</button>
 </nav>
@@ -737,10 +738,46 @@ $('rcClr').onclick=()=>{$('rcSearch').value='';renderRecipes();$('rcSearch').foc
 /* ===== v0.8 TEST · Tablas independientes · sin escritura JSON ===== */
 let cloudClient=null,cloudUser=null,cloudReady=false,cloudBusy=false,cloudLoading=false,cloudChannel=null,cloudEpoch=0,cloudGeneration=0,cloudAllProducts=[],cloudInitFor='';
 let stockDrafts=Object.create(null),cloudPending=null,countLocked=false,ownRequests=new Set(),ownProductWrites=new Set();
+let remoteRefreshNeeded=false,cloudSyncTimer=null,realtimeSubscribed=false;
 function cloudStatus(message){$('cloudStatus').textContent=message}
+function showRemoteBanner(message){
+  $('syncBannerText').textContent=message||'Hay cambios nuevos. Actualiza cuando termines.';
+  $('syncBanner').style.display='flex';
+  $('cloudReload').style.display='inline-block';
+}
+function clearRemoteBanner(){
+  $('syncBanner').style.display='none';
+  $('cloudReload').style.display='none';
+}
+function isEditingProductForm(){
+  const a=document.activeElement;
+  return $('modal').classList.contains('on') ||
+    !!$('pName').value.trim()||!!$('newCat').value.trim()||
+    !!(a&&a.matches&&a.matches('input,textarea,select')&&a.closest('#products'));
+}
+function canAutoRefresh(){
+  return !!(cloudClient&&cloudReady&&!cloudBusy&&!cloudLoading&&!cloudPending&&!hasDraft()&&!document.hidden&&!isEditingProductForm());
+}
+function scheduleSafeRefresh(){
+  if(!remoteRefreshNeeded)return;
+  if(!canAutoRefresh()){
+    showRemoteBanner(cloudPending?'Hay un envío pendiente: termina de confirmar el conteo antes de actualizar.':
+      hasDraft()?'Hay cambios de otros dispositivos. Tu borrador sigue intacto; actualiza cuando termines.':
+      'Hay cambios de otros dispositivos. Actualiza cuando termines de editar.');
+    return;
+  }
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer=setTimeout(async()=>{
+    cloudSyncTimer=null;
+    if(!remoteRefreshNeeded)return;
+    if(!canAutoRefresh()){scheduleSafeRefresh();return}
+    const ok=await refreshCloud();
+    if(!ok)showRemoteBanner('No se pudo actualizar automáticamente. Comprueba la conexión y usa Actualizar vista.');
+  },600);
+}
 function hasDraft(){return Object.values(stockDrafts).some(o=>Object.values(o).some(v=>v!==''))}
 function updateDraftStatus(){const draft=stockDrafts[$('stockDate').value]||{},n=Object.values(draft).filter(v=>v!=='').length;$('saveState').textContent=cloudBusy&&cloudPending?'Guardando conteo…':cloudPending?'Envío pendiente de confirmación · reintenta el mismo conteo':countLocked?'Conteo guardado · pulsa Nuevo conteo':n?n+' cantidades en borrador · aún sin guardar':'Introduce las cantidades del conteo';setBusyUI()}
-function setBusyUI(){const blocked=!cloudReady||cloudBusy||cloudLoading;$('saveStock').disabled=blocked||countLocked||(!cloudPending&&!Object.values(stockDrafts[$('stockDate').value]||{}).some(v=>v!==''));$('newCount').disabled=blocked||!!cloudPending;$('stockDate').disabled=blocked||countLocked||!!cloudPending;$('addProduct').disabled=blocked;$('addCat').disabled=blocked;$('cloudReload').disabled=cloudBusy||cloudLoading;$('logoutButton').disabled=cloudBusy||cloudLoading;document.querySelectorAll('#stockItems input[data-value]').forEach(el=>el.disabled=blocked||countLocked||!!cloudPending);document.querySelectorAll('#stockItems [data-edit],#productList button').forEach(el=>el.disabled=blocked)}
+function setBusyUI(){const blocked=!cloudReady||cloudBusy||cloudLoading;$('saveStock').disabled=blocked||countLocked||(!cloudPending&&!Object.values(stockDrafts[$('stockDate').value]||{}).some(v=>v!==''));$('newCount').disabled=blocked||!!cloudPending;$('stockDate').disabled=blocked||countLocked||!!cloudPending;$('addProduct').disabled=blocked;$('addCat').disabled=blocked;$('cloudReload').disabled=cloudBusy||cloudLoading;$('logoutButton').disabled=cloudBusy||cloudLoading;document.querySelectorAll('#stockItems input[data-value]').forEach(el=>el.disabled=blocked||countLocked||!!cloudPending);document.querySelectorAll('#stockItems [data-edit],#productList button').forEach(el=>el.disabled=blocked);$('syncBannerReload').disabled=cloudBusy||cloudLoading||!!cloudPending;$('cloudReload').disabled=cloudBusy||cloudLoading||!!cloudPending;if(remoteRefreshNeeded&&!blocked&&!cloudPending)scheduleSafeRefresh()}
 function captureDraft(){if(!cloudReady||cloudBusy||cloudPending||countLocked)return;const date=curDate||$('stockDate').value;const d=stockDrafts[date]||(stockDrafts[date]=Object.create(null));document.querySelectorAll('#stockItems [data-value]').forEach(i=>{if(i.value==='')delete d[i.dataset.value];else d[i.dataset.value]=i.value});updateDraftStatus()}
 function receipt(message){const el=$('countReceipt');el.textContent=message;el.style.display=message?'block':'none'}
 function renderCloudState(){setupSelects();renderDashboard();renderStock();renderProducts();renderHistory();renderAnalysis();renderRecipes();renderInbox();updProg();updateDraftStatus()}
@@ -753,10 +790,12 @@ v.forEach(row=>{const snap=by.get(row.snapshot_id);if(snap)snap.values[row.produ
 cloudAllProducts=p.map(row=>({id:row.id,name:row.name,cat:row.category,type:row.control_type,unit:row.unit,min:Number(row.min_value),initial:row.initial_value,packQty:row.pack_qty,packUnit:row.pack_unit,note:row.note,alias:row.aliases,controlEvery:row.control_every_days,revision:row.revision,active:row.is_active}));
 data.products=cloudAllProducts.filter(p=>p.active);data.cats=c.map(x=>x.name);cats.splice(0,cats.length,...data.cats);data.snapshots=[...by.values()];data.checks=Object.create(null);ck.forEach(x=>(data.checks[x.stock_date]||(data.checks[x.stock_date]=Object.create(null)))[x.product_id]=Date.parse(x.checked_at));
 cloudReady=true;window.kitchenCloudReady=true;document.querySelector('main').inert=false;renderCloudState();
-const changed=generation!==cloudGeneration;$('cloudReload').style.display=changed?'inline-block':'none';cloudStatus(changed?'Nube: hay cambios nuevos · actualizar':'Nube: sincronizada · pruebas · '+window.kitchenUserRole);return true;
+const changed=generation!==cloudGeneration;remoteRefreshNeeded=changed;if(changed){showRemoteBanner('Llegaron nuevos cambios durante la actualización. Se comprobarán de nuevo.');cloudStatus('Nube: hay cambios nuevos · actualizar');}else{clearRemoteBanner();cloudStatus('Nube: sincronizada · pruebas · '+window.kitchenUserRole);}return true;
 }catch(e){if(epoch===cloudEpoch){cloudReady=false;window.kitchenCloudReady=false;cloudStatus('Nube: error de lectura · actualizar');$('cloudReload').style.display='inline-block';toast('No se pudieron leer los datos: '+e.message,7000)}return false;}finally{if(epoch===cloudEpoch){cloudLoading=false;setBusyUI()}}}
-function remoteChange(){cloudGeneration++;$('cloudReload').style.display='inline-block';cloudStatus('Nube: hay cambios nuevos · actualizar')}
-$('cloudReload').onclick=async()=>{if(cloudBusy||cloudLoading)return;if($('modal').classList.contains('on'))return toast('Cierra la edición antes de actualizar');await refreshCloud()};
+function remoteChange(){cloudGeneration++;remoteRefreshNeeded=true;cloudStatus('Nube: cambios detectados · sincronizando');scheduleSafeRefresh()}
+async function manualCloudRefresh(){if(cloudBusy||cloudLoading)return;if(cloudPending)return toast('Confirma primero el conteo pendiente, usando Guardar conteo',6000);if($('modal').classList.contains('on'))return toast('Cierra la edición antes de actualizar');if(hasDraft()&&!confirm('Se cargarán los datos nuevos sin borrar las cantidades que estás escribiendo. ¿Continuar?'))return;const ok=await refreshCloud();if(ok&&hasDraft())toast('Datos actualizados · las cantidades de tu borrador se conservaron',5000)}
+$('cloudReload').onclick=manualCloudRefresh;
+$('syncBannerReload').onclick=manualCloudRefresh;
 async function saveCloudCount(){if(!cloudReady||cloudBusy||cloudLoading||countLocked)return;const date=$('stockDate').value,draft=stockDrafts[date]||{},values=Object.create(null);
 if(cloudPending){if(cloudPending.date!==date)return toast('Finaliza el envío pendiente primero');Object.assign(values,cloudPending.values);}
 else{for(const [id,str] of Object.entries(draft)){if(str==='')continue;const p=prod(id),value=Number(str);if(!p||!Number.isFinite(value)||value<0||(p.type==='percent'&&value>100))return toast('Cantidad inválida o producto archivado: '+(p?.name||id),6000);values[id]=value;}if(!date||!Object.keys(values).length)return toast('Introduce al menos una cantidad');cloudPending={date,values:{...values},id:crypto.randomUUID()};}
@@ -767,13 +806,23 @@ finally{cloudBusy=false;updateDraftStatus()}}
 async function writeProductPatch(p,patch,label){if(!cloudReady||cloudBusy||cloudLoading)return false;cloudBusy=true;setBusyUI();const token=p.id+'|'+(p.revision+1);ownProductWrites.add(token);try{const res=await cloudClient.from('products').update(patch).eq('id',p.id).eq('revision',p.revision).select('id,revision').maybeSingle();if(res.error)throw res.error;if(!res.data){ownProductWrites.delete(token);remoteChange();toast('Conflicto: otra sesión cambió el producto. Cierra la edición, actualiza y revisa antes de guardar.',8000);return false;}await refreshCloud();toast(label);return true;}catch(e){ownProductWrites.delete(token);toast('No se pudo guardar: '+e.message,7000);return false;}finally{cloudBusy=false;setBusyUI()}}
 window.initializeKitchenCloud=async function(client,knownUser){if(!client)return;const user=knownUser||(await client.auth.getUser()).data?.user;if(!user)return;if(cloudInitFor===user.id)return;cloudInitFor=user.id;cloudClient=client;cloudUser=user;const epoch=++cloudEpoch;cloudStatus('Nube: comprobando permisos…');document.querySelector('main').inert=true;try{
 const res=await client.from('profiles').select('role').eq('id',user.id).single();if(epoch!==cloudEpoch)return;if(res.error||!['admin','editor'].includes(res.data?.role))throw Error('El usuario no dispone de permisos de inventario');window.kitchenUserRole=res.data.role;
-if(cloudChannel)await client.removeChannel(cloudChannel);
-cloudChannel=client.channel('kitchen-v08-'+crypto.randomUUID()).on('postgres_changes',{event:'INSERT',schema:'public',table:'inventory_snapshots'},e=>{if(!ownRequests.has(e.new?.request_id))remoteChange()}).on('postgres_changes',{event:'*',schema:'public',table:'products'},e=>{const row=e.new||{},token=row.id+'|'+row.revision;if(row.updated_by===cloudUser?.id&&ownProductWrites.has(token)){ownProductWrites.delete(token);return}remoteChange()}).on('postgres_changes',{event:'*',schema:'public',table:'categories'},remoteChange).subscribe(status=>{if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){ $('cloudReload').style.display='inline-block';cloudStatus('Nube: Realtime no disponible · actualizar manualmente')}});
+if(cloudChannel)await client.removeChannel(cloudChannel);realtimeSubscribed=false;
+cloudChannel=client.channel('kitchen-v08-'+crypto.randomUUID()).on('postgres_changes',{event:'INSERT',schema:'public',table:'inventory_snapshots'},e=>{if(!ownRequests.has(e.new?.request_id))remoteChange()}).on('postgres_changes',{event:'*',schema:'public',table:'products'},e=>{const row=e.new||{},token=row.id+'|'+row.revision;if(row.updated_by===cloudUser?.id&&ownProductWrites.has(token)){ownProductWrites.delete(token);return}remoteChange()}).on('postgres_changes',{event:'*',schema:'public',table:'categories'},remoteChange).subscribe(status=>{if(status==='SUBSCRIBED'){realtimeSubscribed=true;if(remoteRefreshNeeded)scheduleSafeRefresh()}else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED'){realtimeSubscribed=false;showRemoteBanner('La conexión en tiempo real está interrumpida. Puedes actualizar manualmente o volver a conectar.');cloudStatus('Nube: conexión en tiempo real interrumpida')}});
 await refreshCloud();}catch(e){if(epoch===cloudEpoch){cloudInitFor='';cloudStatus('Nube: acceso pendiente');toast(e.message,7000)}}
 };
-window.resetKitchenCloudSession=function(){++cloudEpoch;if(cloudChannel&&cloudClient)cloudClient.removeChannel(cloudChannel);cloudChannel=null;cloudClient=null;cloudUser=null;cloudInitFor='';cloudReady=false;cloudBusy=false;cloudLoading=false;cloudPending=null;countLocked=false;stockDrafts=Object.create(null);ownRequests.clear();ownProductWrites.clear();cloudAllProducts=[];window.kitchenCloudReady=false;window.kitchenUserRole=null;data=load();cats.splice(0,cats.length);document.querySelector('main').inert=true;receipt('');cloudStatus('Nube: desconectada');}
+window.resetKitchenCloudSession=function(){++cloudEpoch;clearTimeout(cloudSyncTimer);cloudSyncTimer=null;remoteRefreshNeeded=false;realtimeSubscribed=false;clearRemoteBanner();if(cloudChannel&&cloudClient)cloudClient.removeChannel(cloudChannel);cloudChannel=null;cloudClient=null;cloudUser=null;cloudInitFor='';cloudReady=false;cloudBusy=false;cloudLoading=false;cloudPending=null;countLocked=false;stockDrafts=Object.create(null);ownRequests.clear();ownProductWrites.clear();cloudAllProducts=[];window.kitchenCloudReady=false;window.kitchenUserRole=null;data=load();cats.splice(0,cats.length);document.querySelector('main').inert=true;receipt('');cloudStatus('Nube: desconectada');}
 $('newCount').onclick=()=>{if(!cloudReady||cloudBusy||cloudPending)return;const date=$('stockDate').value;if(Object.values(stockDrafts[date]||{}).some(v=>v!=='')&&!confirm('¿Descartar el borrador de este conteo?'))return;delete stockDrafts[date];countLocked=false;receipt('');renderStock();updateDraftStatus()};
 addEventListener('beforeunload',e=>{if(hasDraft()||cloudPending){e.preventDefault();e.returnValue='';}});
+// On mobile, resynchronize after returning to Chrome; otherwise keep edits untouched.
+document.addEventListener('visibilitychange',()=>{
+  if(!document.hidden&&cloudReady&&!cloudBusy){remoteChange();}
+});
+window.addEventListener('focus',()=>{
+  if(cloudReady&&!cloudBusy)remoteChange();
+});
+setInterval(()=>{
+  if(cloudClient&&cloudReady&&!realtimeSubscribed&&!document.hidden&&!cloudBusy&&!cloudLoading)remoteChange();
+},60000);
 /* ===== Eventos e inicio ===== */
 $('saveStock').onclick=saveStock;$('dashDate').onchange=renderDashboard;$('filterCategory').onchange=renderStock;$('stockDate').onchange=()=>{if(!cloudBusy&&!cloudPending&&!countLocked){renderStock();updateDraftStatus()}};
 $('historyPick').onchange=historyDetail;$('historyCmp').onchange=historyDetail;$('onlyChanges').onchange=historyDetail;

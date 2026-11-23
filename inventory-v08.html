@@ -739,6 +739,7 @@ $('rcClr').onclick=()=>{$('rcSearch').value='';renderRecipes();$('rcSearch').foc
 let cloudClient=null,cloudUser=null,cloudReady=false,cloudBusy=false,cloudLoading=false,cloudChannel=null,cloudEpoch=0,cloudGeneration=0,cloudAllProducts=[],cloudInitFor='';
 let stockDrafts=Object.create(null),cloudPending=null,countLocked=false,ownRequests=new Set(),ownProductWrites=new Set();
 let remoteRefreshNeeded=false,cloudSyncTimer=null,realtimeSubscribed=false;
+let manualRefreshInProgress=false,lastVisibilityChangeAt=0;
 function cloudStatus(message){$('cloudStatus').textContent=message}
 function showRemoteBanner(message){
   $('syncBannerText').textContent=message||'Hay cambios nuevos. Actualiza cuando termines.';
@@ -756,7 +757,7 @@ function isEditingProductForm(){
     !!(a&&a.matches&&a.matches('input,textarea,select')&&a.closest('#products'));
 }
 function canAutoRefresh(){
-  return !!(cloudClient&&cloudReady&&!cloudBusy&&!cloudLoading&&!cloudPending&&!hasDraft()&&!document.hidden&&!isEditingProductForm());
+  return !!(cloudClient&&cloudReady&&!cloudBusy&&!cloudLoading&&!cloudPending&&!manualRefreshInProgress&&!hasDraft()&&!document.hidden&&!isEditingProductForm());
 }
 function scheduleSafeRefresh(){
   if(!remoteRefreshNeeded)return;
@@ -793,7 +794,24 @@ cloudReady=true;window.kitchenCloudReady=true;document.querySelector('main').ine
 const changed=generation!==cloudGeneration;remoteRefreshNeeded=changed;if(changed){showRemoteBanner('Llegaron nuevos cambios durante la actualización. Se comprobarán de nuevo.');cloudStatus('Nube: hay cambios nuevos · actualizar');}else{clearRemoteBanner();cloudStatus('Nube: sincronizada · pruebas · '+window.kitchenUserRole);}return true;
 }catch(e){if(epoch===cloudEpoch){cloudReady=false;window.kitchenCloudReady=false;cloudStatus('Nube: error de lectura · actualizar');$('cloudReload').style.display='inline-block';toast('No se pudieron leer los datos: '+e.message,7000)}return false;}finally{if(epoch===cloudEpoch){cloudLoading=false;setBusyUI()}}}
 function remoteChange(){cloudGeneration++;remoteRefreshNeeded=true;cloudStatus('Nube: cambios detectados · sincronizando');scheduleSafeRefresh()}
-async function manualCloudRefresh(){if(cloudBusy||cloudLoading)return;if(cloudPending)return toast('Confirma primero el conteo pendiente, usando Guardar conteo',6000);if($('modal').classList.contains('on'))return toast('Cierra la edición antes de actualizar');if(hasDraft()&&!confirm('Se cargarán los datos nuevos sin borrar las cantidades que estás escribiendo. ¿Continuar?'))return;const ok=await refreshCloud();if(ok&&hasDraft())toast('Datos actualizados · las cantidades de tu borrador se conservaron',5000)}
+async function manualCloudRefresh(){
+  if(cloudBusy||cloudLoading||manualRefreshInProgress)return;
+  if(cloudPending)return toast('Confirma primero el conteo pendiente, usando Guardar conteo',6000);
+  if($('modal').classList.contains('on'))return toast('Cierra la edición antes de actualizar');
+  // Android/Chrome can fire a window focus event while closing the confirmation dialog.
+  // That must not count as a new remote database change.
+  manualRefreshInProgress=true;
+  try{
+    if(hasDraft()&&!confirm('Se cargarán los datos nuevos sin borrar las cantidades que estás escribiendo. ¿Continuar?'))return;
+    const ok=await refreshCloud();
+    if(ok&&hasDraft())toast(remoteRefreshNeeded?
+      'Se conservaron las cantidades, pero llegaron otros cambios mientras se actualizaba.':
+      'Datos actualizados · las cantidades de tu borrador se conservaron',5000);
+  }finally{
+    manualRefreshInProgress=false;
+    if(remoteRefreshNeeded)scheduleSafeRefresh();
+  }
+}
 $('cloudReload').onclick=manualCloudRefresh;
 $('syncBannerReload').onclick=manualCloudRefresh;
 async function saveCloudCount(){if(!cloudReady||cloudBusy||cloudLoading||countLocked)return;const date=$('stockDate').value,draft=stockDrafts[date]||{},values=Object.create(null);
@@ -810,15 +828,19 @@ if(cloudChannel)await client.removeChannel(cloudChannel);realtimeSubscribed=fals
 cloudChannel=client.channel('kitchen-v08-'+crypto.randomUUID()).on('postgres_changes',{event:'INSERT',schema:'public',table:'inventory_snapshots'},e=>{if(!ownRequests.has(e.new?.request_id))remoteChange()}).on('postgres_changes',{event:'*',schema:'public',table:'products'},e=>{const row=e.new||{},token=row.id+'|'+row.revision;if(row.updated_by===cloudUser?.id&&ownProductWrites.has(token)){ownProductWrites.delete(token);return}remoteChange()}).on('postgres_changes',{event:'*',schema:'public',table:'categories'},remoteChange).subscribe(status=>{if(status==='SUBSCRIBED'){realtimeSubscribed=true;if(remoteRefreshNeeded)scheduleSafeRefresh()}else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED'){realtimeSubscribed=false;showRemoteBanner('La conexión en tiempo real está interrumpida. Puedes actualizar manualmente o volver a conectar.');cloudStatus('Nube: conexión en tiempo real interrumpida')}});
 await refreshCloud();}catch(e){if(epoch===cloudEpoch){cloudInitFor='';cloudStatus('Nube: acceso pendiente');toast(e.message,7000)}}
 };
-window.resetKitchenCloudSession=function(){++cloudEpoch;clearTimeout(cloudSyncTimer);cloudSyncTimer=null;remoteRefreshNeeded=false;realtimeSubscribed=false;clearRemoteBanner();if(cloudChannel&&cloudClient)cloudClient.removeChannel(cloudChannel);cloudChannel=null;cloudClient=null;cloudUser=null;cloudInitFor='';cloudReady=false;cloudBusy=false;cloudLoading=false;cloudPending=null;countLocked=false;stockDrafts=Object.create(null);ownRequests.clear();ownProductWrites.clear();cloudAllProducts=[];window.kitchenCloudReady=false;window.kitchenUserRole=null;data=load();cats.splice(0,cats.length);document.querySelector('main').inert=true;receipt('');cloudStatus('Nube: desconectada');}
+window.resetKitchenCloudSession=function(){++cloudEpoch;manualRefreshInProgress=false;lastVisibilityChangeAt=0;clearTimeout(cloudSyncTimer);cloudSyncTimer=null;remoteRefreshNeeded=false;realtimeSubscribed=false;clearRemoteBanner();if(cloudChannel&&cloudClient)cloudClient.removeChannel(cloudChannel);cloudChannel=null;cloudClient=null;cloudUser=null;cloudInitFor='';cloudReady=false;cloudBusy=false;cloudLoading=false;cloudPending=null;countLocked=false;stockDrafts=Object.create(null);ownRequests.clear();ownProductWrites.clear();cloudAllProducts=[];window.kitchenCloudReady=false;window.kitchenUserRole=null;data=load();cats.splice(0,cats.length);document.querySelector('main').inert=true;receipt('');cloudStatus('Nube: desconectada');}
 $('newCount').onclick=()=>{if(!cloudReady||cloudBusy||cloudPending)return;const date=$('stockDate').value;if(Object.values(stockDrafts[date]||{}).some(v=>v!=='')&&!confirm('¿Descartar el borrador de este conteo?'))return;delete stockDrafts[date];countLocked=false;receipt('');renderStock();updateDraftStatus()};
 addEventListener('beforeunload',e=>{if(hasDraft()||cloudPending){e.preventDefault();e.returnValue='';}});
 // On mobile, resynchronize after returning to Chrome; otherwise keep edits untouched.
 document.addEventListener('visibilitychange',()=>{
-  if(!document.hidden&&cloudReady&&!cloudBusy){remoteChange();}
+  lastVisibilityChangeAt=Date.now();
+  if(!document.hidden&&cloudReady&&!cloudBusy&&!manualRefreshInProgress)remoteChange();
 });
 window.addEventListener('focus',()=>{
-  if(cloudReady&&!cloudBusy)remoteChange();
+  // A tab switch triggers both visibilitychange and focus on mobile browsers.
+  // Also suppress focus caused by a confirmation dialog; it isn't a server update.
+  if(manualRefreshInProgress||Date.now()-lastVisibilityChangeAt<1500)return;
+  if(cloudReady&&!cloudBusy&&!cloudLoading)remoteChange();
 });
 setInterval(()=>{
   if(cloudClient&&cloudReady&&!realtimeSubscribed&&!document.hidden&&!cloudBusy&&!cloudLoading)remoteChange();

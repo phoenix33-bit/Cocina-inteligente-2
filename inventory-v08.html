@@ -103,7 +103,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
       <button type="button" id="backToLogin" class="auth-link">Volver al inicio de sesión</button>
     </div>
     <div class="auth-password-section" id="authNewPassword" hidden>
-      <p class="auth-help">Introduce una contraseña nueva para tu cuenta de pruebas.</p>
+      <p class="auth-help" id="passwordSetupHelp">Introduce una contraseña nueva para tu cuenta de pruebas.</p>
       <form id="newPasswordForm">
         <label class="auth-field">Contraseña nueva<input id="newPassword" type="password" autocomplete="new-password" minlength="8" required></label>
         <label class="auth-field">Repetir contraseña<input id="confirmNewPassword" type="password" autocomplete="new-password" minlength="8" required></label>
@@ -860,14 +860,17 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-/* Supabase Auth — v0.7 Test: acceso y recuperación de contraseña. */
+/* Supabase Auth — v0.8 Test: acceso, invitación y recuperación de contraseña. */
 (function(){
   const SUPABASE_URL='https://sxuqnyyapsuwdsmkuxli.supabase.co';
   const SUPABASE_ANON_KEY='sb_publishable_7gdNGf81HId8i5MgREjtXQ_ZN2dkK_m';
   const $auth=id=>document.getElementById(id);
   const form=$auth('loginForm'),button=$auth('loginButton'),errorBox=$auth('authError'),notice=$auth('authNotice');
   let client=null,authGeneration=0;
-  let recoveryMode=window.location.hash.includes('type=recovery')||new URLSearchParams(location.search).get('type')==='recovery';
+  // Capture the invite/recovery type before Supabase consumes the URL fragment.
+  const authHash=new URLSearchParams(window.location.hash.replace(/^#/,'')),authQuery=new URLSearchParams(window.location.search);
+  const authLinkType=authHash.get('type')||authQuery.get('type');
+  let passwordSetupMode=['invite','recovery'].includes(authLinkType)?authLinkType:null;
   function showError(message){errorBox.textContent=message;errorBox.style.display='block';notice.style.display='none'}
   function showNotice(message){notice.textContent=message;notice.style.display='block';errorBox.style.display='none'}
   function clearMessages(){notice.style.display='none';errorBox.style.display='none'}
@@ -882,10 +885,19 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
   }
   function setSession(session){
     const generation=++authGeneration;
-    document.body.classList.toggle('auth-locked',recoveryMode||!session);
+    document.body.classList.toggle('auth-locked',!!passwordSetupMode||!session);
     $auth('signedInEmail').textContent=session?.user?.email||'';
-    if(recoveryMode){
-      if(session)displayMode('new-password');
+    if(passwordSetupMode){
+      if(session){
+        $auth('passwordSetupHelp').textContent=passwordSetupMode==='invite'?
+          'Invitación aceptada. Crea una contraseña de al menos 8 caracteres para tu cuenta de pruebas.':
+          'Introduce una contraseña nueva para tu cuenta de pruebas.';
+        $auth('saveNewPasswordButton').textContent=passwordSetupMode==='invite'?'Crear contraseña':'Guardar contraseña nueva';
+        displayMode('new-password');
+      }else{
+        displayMode('pending');
+        showNotice('Verificando el enlace de '+(passwordSetupMode==='invite'?'invitación':'recuperación')+'…');
+      }
       return;
     }
     if(!session){
@@ -898,6 +910,10 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
   if(!window.supabase?.createClient){
     showError('No se pudo cargar el servicio de acceso. Comprueba tu conexión e intenta recargar.');
     return;
+  }
+  if(passwordSetupMode){
+    displayMode('pending');
+    showNotice('Verificando el enlace seguro…');
   }
   client=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
   window.kitchenSupabase=client;
@@ -937,12 +953,15 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
       const {error}=await client.auth.updateUser({password});
       if(error)throw error;
       $auth('newPassword').value='';$auth('confirmNewPassword').value='';
-      // Finish the recovery flow by requiring a fresh login.
-      recoveryMode=false;
-      await client.auth.signOut();
+      // Invitation and recovery both end with a fresh password-based login.
+      const invited=passwordSetupMode==='invite';
+      const {error:logoutError}=await client.auth.signOut();
+      if(logoutError)throw logoutError;
+      passwordSetupMode=null;
       if(location.hash||location.search)history.replaceState(null,'',location.pathname);
       displayMode('login');setSession(null);
-      showNotice('Contraseña actualizada. Ahora inicia sesión con tu contraseña nueva.');
+      showNotice(invited?'Cuenta activada. Ya puedes iniciar sesión con tu nueva contraseña.':
+        'Contraseña actualizada. Ahora inicia sesión con tu contraseña nueva.');
     }catch(error){showError('No se pudo actualizar la contraseña: '+error.message)}
     finally{save.disabled=false;save.textContent='Guardar contraseña nueva'}
   });
@@ -953,15 +972,20 @@ $('dashDate').value=today();$('stockDate').value=today();setupSelects();renderDa
     else setSession(null);
   });
   client.auth.onAuthStateChange((event,session)=>{
-    if(event==='PASSWORD_RECOVERY'){
-      recoveryMode=true;
-      displayMode('new-password');
-    }
+    if(event==='PASSWORD_RECOVERY')passwordSetupMode='recovery';
     setSession(session);
   });
   client.auth.getSession().then(({data,error})=>{
     if(error){showError('No se pudo comprobar la sesión: '+error.message);return}
-    if(recoveryMode&&!data.session)showError('El enlace de recuperación no es válido o expiró. Solicita uno nuevo.');
+    if(passwordSetupMode&&!data.session){
+      const wasInvite=passwordSetupMode==='invite';
+      passwordSetupMode=null;
+      if(location.hash||location.search)history.replaceState(null,'',location.pathname);
+      displayMode('login');setSession(null);
+      showError(wasInvite?'La invitación no es válida o expiró. Solicita que te envíen una nueva.':
+        'El enlace de recuperación no es válido o expiró. Solicita uno nuevo.');
+      return;
+    }
     setSession(data.session);
   });
 
